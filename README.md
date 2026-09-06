@@ -1,6 +1,6 @@
 # Kunta
 
-**Piccolo laboratorio testuale portatile per Windows**  
+**Piccolo laboratorio testuale portatile per Windows e mobile**  
 **ShiduLab 2026**
 
 Kunta serve per **contare, osservare, ordinare, smontare e curiosare dentro i testi**.
