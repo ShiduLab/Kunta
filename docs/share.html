@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kunta</title></head>
+<body>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const parts = [q.get('title'), q.get('text'), q.get('url')].filter(Boolean);
+  if (parts.length) localStorage.setItem('kunta.sharedText', parts.join('\n'));
+  location.replace('./?shared=1');
+})();
+</script>
+</body>
+</html>

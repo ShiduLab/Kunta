@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#315c00">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Kunta">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/kunta-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>Kunta</title>
+</head>
+<body>
+<main class="app">
+  <header>
+    <img src="assets/kunta-avatar.png" alt="" aria-hidden="true">
+    <div><h1>Kunta</h1><p class="tagline">Conta · osserva · ordina · rac-conta</p></div>
+    <button id="installBtn" class="hidden" style="margin-left:auto">Installa</button>
+  </header>
+
+  <div class="toolbar">
+    <button id="pasteBtn">Incolla</button>
+    <button id="openBtn">Apri testo…</button>
+    <input id="fileInput" class="hidden" type="file" accept="text/*,.txt,.md,.log,.csv,.tsv">
+    <button id="clearBtn">Pulisci</button>
+  </div>
+
+  <textarea id="inputText" spellcheck="true" placeholder="Incolla, scrivi o condividi qui il testo da Kuntare…"></textarea>
+
+  <div class="quick">
+    <button class="quick" data-op="20">A–Z</button>
+    <button class="quick" data-op="9">Ripetizioni</button>
+    <button class="quick" data-op="26">Kunta il testo</button>
+  </div>
+
+  <section class="controls">
+    <div class="field">
+      <label for="operation">Operazione</label>
+      <select id="operation"></select>
+    </div>
+    <div class="field small">
+      <label for="param">Parametro</label>
+      <input id="param" type="text" autocomplete="off">
+    </div>
+    <label class="check"><input id="caseSensitive" type="checkbox"> Maiuscole/minuscole distinte</label>
+    <button id="runBtn" class="primary">KUNTA!</button>
+    <p id="hint"></p>
+  </section>
+
+  <textarea id="outputText" readonly placeholder="Il risultato apparirà qui."></textarea>
+  <div class="resultbar">
+    <button id="copyBtn">Copia risultato</button>
+    <button id="shareBtn">Condividi risultato</button>
+    <span class="status" id="status">Locale · nessun invio esterno</span>
+  </div>
+
+  <footer><img src="assets/botolo.png" alt="Botolo"><span>ShiduLab</span></footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
