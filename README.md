@@ -209,3 +209,10 @@ Kunta/
    ├─ share.html
    └─ assets/
 ```
+LICENSE
+Copyright © 2026. All rights reserved.
+
+Kunta, its source code, documentation, graphical assets,
+name and branding may not be copied, modified, redistributed,
+sold or incorporated into derivative products without
+the copyright holder's explicit written permission.
