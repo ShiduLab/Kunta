@@ -1,4 +1,4 @@
-const CACHE = 'kunta-mobile-v1';
+const CACHE = 'kunta-mobile-v2';
 const ASSETS = [
   './','./index.html','./styles.css','./app.js','./manifest.webmanifest','./share.html',
   './assets/kunta-192.png','./assets/kunta-512.png','./assets/kunta-maskable-512.png','./assets/kunta-avatar.png','./assets/botolo.png'
