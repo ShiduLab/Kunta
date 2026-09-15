@@ -147,11 +147,8 @@ func parsePositive(s string, def, min, max int) int {
 	return n
 }
 func limitLines(s string, max int) string {
-	a := strings.Split(s, "\n")
-	if len(a) <= max {
-		return s
-	}
-	return strings.Join(a[:max], "\n") + fmt.Sprintf("\n\n… output limitato a %d righe.", max)
+	// Desktop: nessun taglio dell'output. L'utente deve poter vedere il risultato completo.
+	return s
 }
 
 type freqPack struct {
@@ -284,7 +281,7 @@ func findAnagrams(words []string, sensitive bool, minLen int) string {
 	sort.Slice(groups, func(i, j int) bool { return strings.ToLower(groups[i][0]) < strings.ToLower(groups[j][0]) })
 	out := []string{fmt.Sprintf("Gruppi di anagrammi: %d", len(groups)), fmt.Sprintf("Lunghezza minima: %d", minLen), ""}
 	for _, a := range groups {
-		out = append(out, strings.Join(a, " · "))
+		out = append(out, "• "+strings.Join(a, "\n• "))
 	}
 	return limitLines(strings.Join(out, "\n"), 700)
 }
@@ -397,7 +394,10 @@ func analyzeRhymeScheme(text string, sensitive bool, depth int) string {
 				parts = append(parts, fmt.Sprintf("-%s ×%d", k, f[k]))
 			}
 			if len(parts) > 0 {
-				out = append(out, fmt.Sprintf("  %d: %s", d, strings.Join(parts, " · ")))
+				out = append(out, fmt.Sprintf("  %d:", d))
+				for _, part := range parts {
+					out = append(out, "    "+part)
+				}
 			}
 		}
 		if si < len(stanzas)-1 {
@@ -741,7 +741,10 @@ func groupWordSignatures(words []string, label string, sig func(string) string) 
 	})
 	out := []string{fmt.Sprintf("%s: %d gruppi", label, len(keys)), ""}
 	for _, k := range keys {
-		out = append(out, fmt.Sprintf("%s  →  %s", prettySignature(k), strings.Join(groups[k], " · ")))
+		out = append(out, prettySignature(k)+"  →")
+		for _, item := range groups[k] {
+			out = append(out, "    "+item)
+		}
 	}
 	if len(keys) == 0 {
 		out = append(out, "Nessun gruppo rilevato nel testo.")
@@ -808,7 +811,10 @@ func findRepeatedRuns(words []string) string {
 			i = j
 		}
 		if len(runs) > 0 {
-			out = append(out, w+"  →  "+strings.Join(runs, " · "))
+			out = append(out, w+"  →")
+			for _, item := range runs {
+				out = append(out, "    "+item)
+			}
 		}
 	}
 	return fmt.Sprintf("Parole con doppie/triple: %d\n\n%s", len(out), strings.Join(out, "\n"))
@@ -843,7 +849,10 @@ func findRepeatedSequences(words []string, minLen int) string {
 				}
 				return a[i] < a[j]
 			})
-			out = append(out, w+"  →  "+strings.Join(a, " · "))
+			out = append(out, w+"  →")
+			for _, item := range a {
+				out = append(out, "    "+item)
+			}
 		}
 	}
 	return fmt.Sprintf("Parole con sequenze ripetute: %d\nLunghezza minima: %d\n\n%s", len(out), minLen, strings.Join(out, "\n"))
@@ -953,7 +962,10 @@ func groupByKey(words []string, label string, keyFn func(string) string) string 
 	})
 	out := []string{fmt.Sprintf("%s: %d gruppi", label, len(keys)), ""}
 	for _, k := range keys {
-		out = append(out, strings.ToUpper(k)+"  →  "+strings.Join(g[k], " · "))
+		out = append(out, strings.ToUpper(k)+"  →")
+		for _, item := range g[k] {
+			out = append(out, "    "+item)
+		}
 	}
 	return strings.Join(out, "\n")
 }
@@ -1558,17 +1570,17 @@ type COMDLG_FILTERSPEC struct {
 	Spec *uint16
 }
 type BITMAPINFOHEADER struct {
-	Size uint32
-	Width int32
-	Height int32
-	Planes uint16
-	BitCount uint16
-	Compression uint32
-	SizeImage uint32
+	Size          uint32
+	Width         int32
+	Height        int32
+	Planes        uint16
+	BitCount      uint16
+	Compression   uint32
+	SizeImage     uint32
 	XPelsPerMeter int32
 	YPelsPerMeter int32
-	ClrUsed uint32
-	ClrImportant uint32
+	ClrUsed       uint32
+	ClrImportant  uint32
 }
 type BITMAPINFO struct {
 	Header BITMAPINFOHEADER
@@ -1631,18 +1643,19 @@ var (
 	pendingResult string
 
 	botoloPixels []byte
-	botoloWidth int
+	botoloWidth  int
 	botoloHeight int
 	botoloStride int
 )
 
 // Botolo + ShiduLab resta incorporato nel singolo Kunta.exe.
+//
 //go:embed assets/Botolo_ShiduLab.bmp
 var botoloBMP []byte
 
 var (
 	clsidFileOpenDialog = GUID{0xDC1C5A9C, 0xE88A, 0x4DDE, [8]byte{0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7}}
-	iidIFileOpenDialog   = GUID{0xD57C7288, 0xD4AD, 0x4768, [8]byte{0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}}
+	iidIFileOpenDialog  = GUID{0xD57C7288, 0xD4AD, 0x4768, [8]byte{0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}}
 )
 
 func u16(s string) *uint16 { p, _ := syscall.UTF16PtrFromString(s); return p }
@@ -1655,7 +1668,14 @@ func textOf(h uintptr) string {
 	procGetWindowTextW.Call(h, uintptr(unsafe.Pointer(&buf[0])), n+1)
 	return syscall.UTF16ToString(buf)
 }
-func setText(h uintptr, s string) { procSetWindowTextW.Call(h, uintptr(unsafe.Pointer(u16(s)))) }
+func windowsText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.ReplaceAll(s, "\n", "\r\n")
+}
+func setText(h uintptr, s string) {
+	procSetWindowTextW.Call(h, uintptr(unsafe.Pointer(u16(windowsText(s)))))
+}
 func move(h uintptr, x, y, w, hh int) {
 	if h != 0 && w > 0 && hh > 0 {
 		procMoveWindow.Call(h, uintptr(x), uintptr(y), uintptr(w), uintptr(hh), 1)
@@ -1745,7 +1765,9 @@ func loadTextPath(path string) {
 }
 func hresultFailed(hr uintptr) bool { return int32(uint32(hr)) < 0 }
 func comCall(obj uintptr, method int, args ...uintptr) uintptr {
-	if obj == 0 { return uintptr(0x80004003) }
+	if obj == 0 {
+		return uintptr(0x80004003)
+	}
 	vtbl := *(*uintptr)(unsafe.Pointer(obj))
 	fn := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(method)*unsafe.Sizeof(uintptr(0))))
 	callArgs := make([]uintptr, 0, len(args)+1)
@@ -1755,10 +1777,14 @@ func comCall(obj uintptr, method int, args ...uintptr) uintptr {
 	return r
 }
 func utf16PtrToString(p uintptr) string {
-	if p == 0 { return "" }
+	if p == 0 {
+		return ""
+	}
 	a := (*[1 << 28]uint16)(unsafe.Pointer(p))
 	n := 0
-	for n < len(a) && a[n] != 0 { n++ }
+	for n < len(a) && a[n] != 0 {
+		n++
+	}
 	return syscall.UTF16ToString(a[:n])
 }
 func openTextFile() {
@@ -1780,7 +1806,7 @@ func openTextFile() {
 	n2, s2 := syscall.StringToUTF16("Tutti i file"), syscall.StringToUTF16("*.*")
 	filters := []COMDLG_FILTERSPEC{{&n1[0], &s1[0]}, {&n2[0], &s2[0]}}
 	comCall(dlg, 4, uintptr(len(filters)), uintptr(unsafe.Pointer(&filters[0]))) // SetFileTypes
-	comCall(dlg, 9, uintptr(0x40|0x800|0x1000)) // FOS_FORCEFILESYSTEM | PATHMUSTEXIST | FILEMUSTEXIST
+	comCall(dlg, 9, uintptr(0x40|0x800|0x1000))                                  // FOS_FORCEFILESYSTEM | PATHMUSTEXIST | FILEMUSTEXIST
 	title := syscall.StringToUTF16("Apri testo in Kunta")
 	comCall(dlg, 17, uintptr(unsafe.Pointer(&title[0]))) // SetTitle
 
@@ -1795,15 +1821,21 @@ func openTextFile() {
 
 	var item uintptr
 	hr = comCall(dlg, 20, uintptr(unsafe.Pointer(&item))) // IFileDialog::GetResult
-	if hresultFailed(hr) || item == 0 { return }
+	if hresultFailed(hr) || item == 0 {
+		return
+	}
 	defer comCall(item, 2)
 
 	var pathPtr uintptr
 	hr = comCall(item, 5, uintptr(0x80058000), uintptr(unsafe.Pointer(&pathPtr))) // IShellItem::GetDisplayName(SIGDN_FILESYSPATH)
-	if hresultFailed(hr) || pathPtr == 0 { return }
+	if hresultFailed(hr) || pathPtr == 0 {
+		return
+	}
 	path := utf16PtrToString(pathPtr)
 	procCoTaskMemFree.Call(pathPtr)
-	if path != "" { loadTextPath(path) }
+	if path != "" {
+		loadTextPath(path)
+	}
 }
 func handleDrop(hDrop uintptr) {
 	n, _, _ := procDragQueryFileW.Call(hDrop, 0xFFFFFFFF, 0, 0)
@@ -1919,7 +1951,7 @@ func layout() {
 	move(controlsByID[ID_LABEL_OPERATION], panelX+inner, panelY+scale(8), comboW-inner*2, labelH)
 	move(controlsByID[ID_LABEL_PARAM], panelX+comboW+gap+inner, panelY+scale(8), paramW-inner*2, labelH)
 	fieldY := panelY + scale(31)
-	move(hCombo, panelX+inner, fieldY, comboW-inner*2, scale(36))
+	move(hCombo, panelX+inner, fieldY, comboW-inner*2, scale(420))
 	move(hParam, panelX+comboW+gap+inner, fieldY, paramW-inner*2, scale(36))
 	runW := scale(105)
 	caseW := rightW - runW - gap
@@ -2014,16 +2046,24 @@ func drawOwnerCombo(di *DRAWITEMSTRUCT) {
 	procDrawTextW.Call(di.HDC, uintptr(unsafe.Pointer(u16(txt))), ^uintptr(0), uintptr(unsafe.Pointer(&rr)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 }
 func initBotolo() {
-	if len(botoloBMP) < 54 || string(botoloBMP[:2]) != "BM" { return }
+	if len(botoloBMP) < 54 || string(botoloBMP[:2]) != "BM" {
+		return
+	}
 	off := int(binary.LittleEndian.Uint32(botoloBMP[10:14]))
 	w := int(int32(binary.LittleEndian.Uint32(botoloBMP[18:22])))
 	h := int(int32(binary.LittleEndian.Uint32(botoloBMP[22:26])))
 	bpp := int(binary.LittleEndian.Uint16(botoloBMP[28:30]))
-	if off <= 0 || w <= 0 || h == 0 || bpp != 24 { return }
-	if h < 0 { h = -h }
+	if off <= 0 || w <= 0 || h == 0 || bpp != 24 {
+		return
+	}
+	if h < 0 {
+		h = -h
+	}
 	stride := ((w*3 + 3) / 4) * 4
 	need := off + stride*h
-	if need > len(botoloBMP) { return }
+	if need > len(botoloBMP) {
+		return
+	}
 	pix := append([]byte(nil), botoloBMP[off:need]...)
 	bgR, bgG, bgB := byte(colBG&0xFF), byte((colBG>>8)&0xFF), byte((colBG>>16)&0xFF)
 	for y := 0; y < h; y++ {
@@ -2038,15 +2078,21 @@ func initBotolo() {
 	botoloPixels, botoloWidth, botoloHeight, botoloStride = pix, w, h, stride
 }
 func drawBotolo(hdc uintptr, client RECT) {
-	if len(botoloPixels) == 0 || botoloWidth <= 0 || botoloHeight <= 0 { return }
+	if len(botoloPixels) == 0 || botoloWidth <= 0 || botoloHeight <= 0 {
+		return
+	}
 	dw, dh := scale(botoloWidth), scale(botoloHeight)
 	x := int(client.Right) - dw - scale(18)
 	y := int(client.Bottom) - dh - scale(10)
-	if x < scale(10) { x = scale(10) }
-	if y < scale(10) { y = scale(10) }
+	if x < scale(10) {
+		x = scale(10)
+	}
+	if y < scale(10) {
+		y = scale(10)
+	}
 	bmi := BITMAPINFO{Header: BITMAPINFOHEADER{
 		Size: uint32(unsafe.Sizeof(BITMAPINFOHEADER{})), Width: int32(botoloWidth), Height: int32(botoloHeight),
-		Planes: 1, BitCount: 24, Compression: 0, SizeImage: uint32(botoloStride*botoloHeight),
+		Planes: 1, BitCount: 24, Compression: 0, SizeImage: uint32(botoloStride * botoloHeight),
 	}}
 	procStretchDIBits.Call(hdc, uintptr(x), uintptr(y), uintptr(dw), uintptr(dh), 0, 0,
 		uintptr(botoloWidth), uintptr(botoloHeight), uintptr(unsafe.Pointer(&botoloPixels[0])), uintptr(unsafe.Pointer(&bmi)), 0, 0x00CC0020)
@@ -2172,33 +2218,57 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		code := int((wParam >> 16) & 0xffff)
 		switch id {
 		case ID_PASTE:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			procSetFocus.Call(hInput)
 			procSendMessageW.Call(hInput, WM_PASTE, 0, 0)
 		case ID_OPEN:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			openTextFile()
 		case ID_CLEAR:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			setText(hInput, "")
 			setText(hOutput, "")
 			setText(hParam, "")
 			setText(hStatus, "Locale · nessun invio esterno")
 			procSetFocus.Call(hInput)
 		case ID_QUICK_AZ:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			procSendMessageW.Call(hCombo, CB_SETCURSEL, 20, 0)
 			updateHint()
 			runOp(20)
 		case ID_QUICK_REP:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			procSendMessageW.Call(hCombo, CB_SETCURSEL, 9, 0)
 			updateHint()
 			runOp(9)
 		case ID_QUICK_KUNTA:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			procSendMessageW.Call(hCombo, CB_SETCURSEL, 26, 0)
 			updateHint()
 			runOp(26)
 		case ID_QUICK_VOW:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			procSendMessageW.Call(hCombo, CB_SETCURSEL, 27, 0)
 			updateHint()
 			runOp(27)
 		case ID_QUICK_CONS:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			procSendMessageW.Call(hCombo, CB_SETCURSEL, 28, 0)
 			updateHint()
 			runOp(28)
@@ -2207,9 +2277,15 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 				updateHint()
 			}
 		case ID_RUN:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			i, _, _ := procSendMessageW.Call(hCombo, CB_GETCURSEL, 0, 0)
 			runOp(int(i))
 		case ID_COPY:
+			if code != 0 {
+				return 0
+			} // BN_CLICKED
 			procSendMessageW.Call(hOutput, EM_SETSEL, 0, ^uintptr(0))
 			procSendMessageW.Call(hOutput, WM_COPY, 0, 0)
 			setText(hStatus, "Risultato copiato.")
@@ -2223,7 +2299,9 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 func main() {
 	runtime.LockOSThread()
 	hrCOM, _, _ := procCoInitializeEx.Call(0, 0x2) // COINIT_APARTMENTTHREADED
-	if !hresultFailed(hrCOM) { defer procCoUninitialize.Call() }
+	if !hresultFailed(hrCOM) {
+		defer procCoUninitialize.Call()
+	}
 	initBotolo()
 	hInst, _, _ := procGetModuleHandleW.Call(0)
 	cur, _, _ := procLoadCursorW.Call(0, 32512)
@@ -2236,7 +2314,7 @@ func main() {
 	brushSoft, _, _ = procCreateSolidBrush.Call(colSoft)
 	brushLine, _, _ = procCreateSolidBrush.Call(colLine)
 
-	class := u16("KuntaNativeWindowV6")
+	class := u16("KuntaNativeWindowV7")
 	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hInst, HIcon: appIcon, HCursor: cur, HbrBackground: brushBG, LpszClassName: class, HIconSm: appIcon}
 	if r, _, _ := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
 		return
@@ -2276,6 +2354,7 @@ func main() {
 	}
 	procSendMessageW.Call(hCombo, CB_SETCURSEL, 20, 0)
 	procSendMessageW.Call(hCombo, CB_SETITEMHEIGHT, ^uintptr(0), uintptr(scale(30)))
+	procSendMessageW.Call(hCombo, CB_SETITEMHEIGHT, 0, uintptr(scale(30)))
 
 	hParam = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, ID_PARAM)
 	procSendMessageW.Call(hParam, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(scale(8)|(scale(8)<<16)))
