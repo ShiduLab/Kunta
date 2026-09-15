@@ -21,6 +21,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
+          cache: false
+
+      - name: Embed Kunta icon
+        shell: cmd
+        run: go run github.com/akavel/rsrc@v0.10.2 -arch amd64 -ico desktop\assets\Kunta.ico -o desktop\rsrc_windows_amd64.syso
 
       - name: Build Kunta.exe
         shell: cmd
