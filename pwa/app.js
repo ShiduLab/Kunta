@@ -371,6 +371,23 @@ function analyze(text,op,p,sensitive){
   }
 }
 
+
+async function readClipboardText(){
+  if(window.KuntaNative && typeof window.KuntaNative.readClipboard === 'function') return String(window.KuntaNative.readClipboard() || '');
+  if(navigator.clipboard && navigator.clipboard.readText) return navigator.clipboard.readText();
+  throw new Error('Clipboard non disponibile');
+}
+async function writeClipboardText(text){
+  if(window.KuntaNative && typeof window.KuntaNative.writeClipboard === 'function'){ window.KuntaNative.writeClipboard(String(text)); return; }
+  if(navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(text); return; }
+  throw new Error('Clipboard non disponibile');
+}
+async function shareText(text){
+  if(window.KuntaNative && typeof window.KuntaNative.share === 'function'){ window.KuntaNative.share(String(text)); return; }
+  if(navigator.share){ await navigator.share({title:'Kunta',text}); return; }
+  throw new Error('Condivisione non disponibile');
+}
+
 function run(){
   if(!input.value){ output.value='Non c’è testo da analizzare.'; return; }
   output.value=analyze(input.value,Number(opSel.value),param.value,$('caseSensitive').checked);
@@ -382,9 +399,11 @@ document.querySelectorAll('button.quick').forEach(b=>b.addEventListener('click',
 $('clearBtn').addEventListener('click',()=>{input.value='';output.value='';param.value='';input.focus();});
 $('openBtn').addEventListener('click',()=>$('fileInput').click());
 $('fileInput').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;input.value=await f.text();e.target.value='';});
-$('pasteBtn').addEventListener('click',async()=>{try{input.value=await navigator.clipboard.readText();}catch{input.focus();$('status').textContent='Clipboard non autorizzata: tieni premuto e usa Incolla.';}});
-$('copyBtn').addEventListener('click',async()=>{if(!output.value)return;try{await navigator.clipboard.writeText(output.value);$('status').textContent='Risultato copiato.';}catch{output.select();document.execCommand('copy');}});
-$('shareBtn').addEventListener('click',async()=>{if(!output.value)return;if(navigator.share){try{await navigator.share({title:'Kunta',text:output.value});}catch{}}else{$('status').textContent='Condivisione di sistema non disponibile in questo browser.';}});
+['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();}));
+document.addEventListener('drop',async e=>{e.preventDefault();const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f){try{input.value=await f.text();$('status').textContent='Testo caricato.';}catch{}}});
+$('pasteBtn').addEventListener('click',async()=>{try{input.value=await readClipboardText();}catch{input.focus();$('status').textContent='Clipboard non disponibile: usa Incolla nel campo testo.';}});
+$('copyBtn').addEventListener('click',async()=>{if(!output.value)return;try{await writeClipboardText(output.value);$('status').textContent='Risultato copiato.';}catch{output.select();document.execCommand('copy');}});
+$('shareBtn').addEventListener('click',async()=>{if(!output.value)return;try{await shareText(output.value);}catch{$('status').textContent='Condivisione di sistema non disponibile.';}});
 
 const shared=localStorage.getItem('kunta.sharedText');
 if(shared){input.value=shared;localStorage.removeItem('kunta.sharedText');$('status').textContent='Testo ricevuto dalla condivisione.';}

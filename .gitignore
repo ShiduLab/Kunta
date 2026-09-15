@@ -1,0 +1,13 @@
+# Build output
+release/*.exe
+release/*.apk
+release/*.zip
+android/.gradle/
+android/build/
+android/app/build/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,11 +1,14 @@
 package io.github.shidulab.kunta;
 
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -13,16 +16,23 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import org.json.JSONObject;
+
 public class MainActivity extends Activity {
-    private static final String KUNTA_URL = "https://shidulab.github.io/Kunta/";
-    private static final int FILE_CHOOSER_REQUEST = 1001;
+    private static final int FILE_REQUEST = 7001;
+    private static final String APP_URL = "file:///android_asset/index.html";
 
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
+    private String pendingSharedText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        getWindow().setStatusBarColor(Color.rgb(16, 20, 15));
+        getWindow().setNavigationBarColor(Color.rgb(16, 20, 15));
+        pendingSharedText = extractSharedText(getIntent());
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(16, 20, 15));
@@ -31,14 +41,27 @@ public class MainActivity extends Activity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
-        settings.setMediaPlaybackRequiresUserGesture(true);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(true);
+        settings.setUseWideViewPort(true);
+        settings.setTextZoom(100);
+
+        webView.addJavascriptInterface(new NativeBridge(), "KuntaNative");
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = callback;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("text/*");
+                startActivityForResult(intent, FILE_REQUEST);
+                return true;
+            }
+        });
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -50,95 +73,97 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return handleUri(Uri.parse(url));
             }
-        });
 
-        webView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onShowFileChooser(
-                    WebView webView,
-                    ValueCallback<Uri[]> filePathCallback,
-                    FileChooserParams fileChooserParams) {
-
-                if (fileCallback != null) {
-                    fileCallback.onReceiveValue(null);
-                }
-                fileCallback = filePathCallback;
-
-                Intent intent;
-                try {
-                    intent = fileChooserParams.createIntent();
-                } catch (Exception e) {
-                    intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                    intent.addCategory(Intent.CATEGORY_OPENABLE);
-                    intent.setType("text/*");
-                }
-
-                try {
-                    startActivityForResult(intent, FILE_CHOOSER_REQUEST);
-                    return true;
-                } catch (ActivityNotFoundException e) {
-                    fileCallback = null;
-                    return false;
-                }
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                deliverSharedText();
             }
         });
 
-        if (savedInstanceState == null) {
-            webView.loadUrl(KUNTA_URL);
-        } else {
-            webView.restoreState(savedInstanceState);
-        }
+        if (savedInstanceState == null) webView.loadUrl(APP_URL);
+        else webView.restoreState(savedInstanceState);
     }
 
     private boolean handleUri(Uri uri) {
         if (uri == null) return false;
-
+        String url = uri.toString();
+        if (url.startsWith("file:///android_asset/")) return false;
         String scheme = uri.getScheme();
-        String host = uri.getHost();
-        String path = uri.getPath();
-
-        boolean isKunta = "https".equalsIgnoreCase(scheme)
-                && "shidulab.github.io".equalsIgnoreCase(host)
-                && path != null
-                && path.startsWith("/Kunta");
-
-        if (isKunta) return false;
-
         if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                return true;
-            } catch (ActivityNotFoundException ignored) {
-                return false;
-            }
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            return true;
         }
-
         return false;
+    }
+
+    private String extractSharedText(Intent intent) {
+        if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return null;
+        CharSequence text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+        return text == null ? null : text.toString();
+    }
+
+    private void deliverSharedText() {
+        if (pendingSharedText == null || pendingSharedText.isEmpty() || webView == null) return;
+        String quoted = JSONObject.quote(pendingSharedText);
+        pendingSharedText = null;
+        webView.evaluateJavascript("(function(){var e=document.getElementById('inputText');if(e){e.value=" + quoted + ";e.dispatchEvent(new Event('input',{bubbles:true}));}var s=document.getElementById('status');if(s)s.textContent='Testo ricevuto dalla condivisione.';})();", null);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        pendingSharedText = extractSharedText(intent);
+        deliverSharedText();
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == FILE_CHOOSER_REQUEST && fileCallback != null) {
-            Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-            fileCallback.onReceiveValue(result);
-            fileCallback = null;
-        }
+        if (requestCode != FILE_REQUEST || fileCallback == null) return;
+        Uri[] result = null;
+        if (resultCode == RESULT_OK && data != null && data.getData() != null) result = new Uri[]{data.getData()};
+        fileCallback.onReceiveValue(result);
+        fileCallback = null;
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        webView.saveState(outState);
+        if (webView != null) webView.saveState(outState);
         super.onSaveInstanceState(outState);
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
+    }
+
+    private class NativeBridge {
+        @JavascriptInterface
+        public String readClipboard() {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null || !clipboard.hasPrimaryClip() || clipboard.getPrimaryClip() == null || clipboard.getPrimaryClip().getItemCount() == 0) return "";
+            CharSequence text = clipboard.getPrimaryClip().getItemAt(0).coerceToText(MainActivity.this);
+            return text == null ? "" : text.toString();
+        }
+
+        @JavascriptInterface
+        public void writeClipboard(String text) {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("Kunta", text == null ? "" : text));
+        }
+
+        @JavascriptInterface
+        public void share(String text) {
+            runOnUiThread(() -> {
+                Intent send = new Intent(Intent.ACTION_SEND);
+                send.setType("text/plain");
+                send.putExtra(Intent.EXTRA_TEXT, text == null ? "" : text);
+                startActivity(Intent.createChooser(send, "Condividi risultato"));
+            });
         }
     }
 }

@@ -1,6 +1,6 @@
-const CACHE = 'kunta-mobile-full-20260915-1';
+const CACHE = 'kunta-clean-20260915-1';
 const ASSETS = [
-  './','./index.html','./styles.css?v=20260915-full1','./app.js?v=20260915-full1','./manifest.webmanifest','./share.html',
+  './','./index.html','./styles.css','./app.js','./manifest.webmanifest','./share.html',
   './assets/kunta-192.png','./assets/kunta-512.png','./assets/kunta-maskable-512.png','./assets/kunta-avatar.png','./assets/botolo.png'
 ];
 self.addEventListener('install', event => {

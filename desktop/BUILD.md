@@ -1,31 +1,12 @@
-# Build di Kunta
+# Kunta Desktop — Windows x64
 
-Il programma usa Go e le API Win32 native.
+Da root del repository:
 
-## Build base
-
-Da una shell con Go installato:
-
-```bash
-GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui -s -w" -o Kunta_base.exe main.go
+```bat
+set GOOS=windows
+set GOARCH=amd64
+go build -trimpath -ldflags="-H windowsgui -s -w" -o release\Kunta.exe .\desktop
 ```
 
-Il sorgente incorpora `assets/Kunta.ico` e `assets/Botolo.ico`; la cartella `assets/` deve quindi restare accanto a `main.go`.
-
-## Icona PE per pinning sulla taskbar
-
-Perché Windows mantenga l'icona di Kunta anche quando l'eseguibile viene fissato alla barra delle applicazioni, la build distribuita contiene anche la risorsa icona nel PE.
-
-Lo script incluso `embed_icon.py` aggiunge la risorsa a una build base e richiede Python 3 e GNU `objcopy`:
-
-```bash
-python embed_icon.py Kunta_base.exe assets/Kunta.ico Kunta.exe
-```
-
-La build finale usa inoltre l'AppUserModelID:
-
-```text
-ShiduLab.Kunta
-```
-
-Gli utenti del pacchetto Portable non devono installare nulla di tutto questo: serve solo per ricompilare il sorgente.
+Il contenuto di `desktop/web/` viene incorporato dentro `Kunta.exe` in fase di build.
+A runtime non servono file HTML/JS esterni.
