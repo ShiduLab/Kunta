@@ -3,6 +3,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -1374,7 +1375,7 @@ func extractNumbers(s string) []string {
 var (
 	user32   = syscall.NewLazyDLL("user32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
-	comdlg32 = syscall.NewLazyDLL("comdlg32.dll")
+	ole32    = syscall.NewLazyDLL("ole32.dll")
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
 	uxtheme  = syscall.NewLazyDLL("uxtheme.dll")
 	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
@@ -1418,8 +1419,12 @@ var (
 	procSetTextColor     = gdi32.NewProc("SetTextColor")
 	procSetBkColor       = gdi32.NewProc("SetBkColor")
 	procSetBkMode        = gdi32.NewProc("SetBkMode")
+	procStretchDIBits    = gdi32.NewProc("StretchDIBits")
 
-	procGetOpenFileNameW      = comdlg32.NewProc("GetOpenFileNameW")
+	procCoInitializeEx        = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize        = ole32.NewProc("CoUninitialize")
+	procCoCreateInstance      = ole32.NewProc("CoCreateInstance")
+	procCoTaskMemFree         = ole32.NewProc("CoTaskMemFree")
 	procSetWindowTheme        = uxtheme.NewProc("SetWindowTheme")
 	procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
 	procDragAcceptFiles       = shell32.NewProc("DragAcceptFiles")
@@ -1542,22 +1547,32 @@ type WNDCLASSEX struct {
 	LpszMenuName, LpszClassName              *uint16
 	HIconSm                                  uintptr
 }
-type OPENFILENAME struct {
-	LStructSize                        uint32
-	HwndOwner, HInstance               uintptr
-	LpstrFilter, LpstrCustomFilter     *uint16
-	NMaxCustFilter, NFilterIndex       uint32
-	LpstrFile                          *uint16
-	NMaxFile                           uint32
-	LpstrFileTitle                     *uint16
-	NMaxFileTitle                      uint32
-	LpstrInitialDir, LpstrTitle        *uint16
-	Flags, NFileOffset, NFileExtension uint32
-	LpstrDefExt                        *uint16
-	LCustData, LpfnHook                uintptr
-	LpTemplateName                     *uint16
-	PvReserved                         uintptr
-	DwReserved, FlagsEx                uint32
+type GUID struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+type COMDLG_FILTERSPEC struct {
+	Name *uint16
+	Spec *uint16
+}
+type BITMAPINFOHEADER struct {
+	Size uint32
+	Width int32
+	Height int32
+	Planes uint16
+	BitCount uint16
+	Compression uint32
+	SizeImage uint32
+	XPelsPerMeter int32
+	YPelsPerMeter int32
+	ClrUsed uint32
+	ClrImportant uint32
+}
+type BITMAPINFO struct {
+	Header BITMAPINFOHEADER
+	Colors [1]uint32
 }
 type PAINTSTRUCT struct {
 	Hdc         uintptr
@@ -1614,6 +1629,20 @@ var (
 	busy          bool
 	resultMu      sync.Mutex
 	pendingResult string
+
+	botoloPixels []byte
+	botoloWidth int
+	botoloHeight int
+	botoloStride int
+)
+
+// Botolo + ShiduLab resta incorporato nel singolo Kunta.exe.
+//go:embed assets/Botolo_ShiduLab.bmp
+var botoloBMP []byte
+
+var (
+	clsidFileOpenDialog = GUID{0xDC1C5A9C, 0xE88A, 0x4DDE, [8]byte{0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7}}
+	iidIFileOpenDialog   = GUID{0xD57C7288, 0xD4AD, 0x4768, [8]byte{0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}}
 )
 
 func u16(s string) *uint16 { p, _ := syscall.UTF16PtrFromString(s); return p }
@@ -1714,15 +1743,67 @@ func loadTextPath(path string) {
 	setText(hStatus, fmt.Sprintf("Testo caricato · %.1f KB", float64(len(b))/1024.0))
 	procSetFocus.Call(hInput)
 }
+func hresultFailed(hr uintptr) bool { return int32(uint32(hr)) < 0 }
+func comCall(obj uintptr, method int, args ...uintptr) uintptr {
+	if obj == 0 { return uintptr(0x80004003) }
+	vtbl := *(*uintptr)(unsafe.Pointer(obj))
+	fn := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(method)*unsafe.Sizeof(uintptr(0))))
+	callArgs := make([]uintptr, 0, len(args)+1)
+	callArgs = append(callArgs, obj)
+	callArgs = append(callArgs, args...)
+	r, _, _ := syscall.SyscallN(fn, callArgs...)
+	return r
+}
+func utf16PtrToString(p uintptr) string {
+	if p == 0 { return "" }
+	a := (*[1 << 28]uint16)(unsafe.Pointer(p))
+	n := 0
+	for n < len(a) && a[n] != 0 { n++ }
+	return syscall.UTF16ToString(a[:n])
+}
 func openTextFile() {
-	buf := make([]uint16, 32768)
-	filter := syscall.StringToUTF16("Testi (*.txt;*.md;*.log;*.csv;*.tsv)\x00*.txt;*.md;*.log;*.csv;*.tsv\x00Tutti i file (*.*)\x00*.*\x00\x00")
-	ofn := OPENFILENAME{LStructSize: uint32(unsafe.Sizeof(OPENFILENAME{})), HwndOwner: hwndMain, LpstrFilter: &filter[0], LpstrFile: &buf[0], NMaxFile: uint32(len(buf)), Flags: 0x00001000 | 0x00000800 | 0x00000008}
-	r, _, _ := procGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
-	if r == 0 {
+	var dlg uintptr
+	hr, _, _ := procCoCreateInstance.Call(
+		uintptr(unsafe.Pointer(&clsidFileOpenDialog)),
+		0,
+		1, // CLSCTX_INPROC_SERVER
+		uintptr(unsafe.Pointer(&iidIFileOpenDialog)),
+		uintptr(unsafe.Pointer(&dlg)),
+	)
+	if hresultFailed(hr) || dlg == 0 {
+		message(fmt.Sprintf("Impossibile aprire il selettore file.\nHRESULT: 0x%08X", uint32(hr)))
 		return
 	}
-	loadTextPath(syscall.UTF16ToString(buf))
+	defer comCall(dlg, 2) // IUnknown::Release
+
+	n1, s1 := syscall.StringToUTF16("Testi"), syscall.StringToUTF16("*.txt;*.md;*.log;*.csv;*.tsv")
+	n2, s2 := syscall.StringToUTF16("Tutti i file"), syscall.StringToUTF16("*.*")
+	filters := []COMDLG_FILTERSPEC{{&n1[0], &s1[0]}, {&n2[0], &s2[0]}}
+	comCall(dlg, 4, uintptr(len(filters)), uintptr(unsafe.Pointer(&filters[0]))) // SetFileTypes
+	comCall(dlg, 9, uintptr(0x40|0x800|0x1000)) // FOS_FORCEFILESYSTEM | PATHMUSTEXIST | FILEMUSTEXIST
+	title := syscall.StringToUTF16("Apri testo in Kunta")
+	comCall(dlg, 17, uintptr(unsafe.Pointer(&title[0]))) // SetTitle
+
+	hr = comCall(dlg, 3, hwndMain) // IModalWindow::Show
+	if hresultFailed(hr) {
+		// 0x800704C7 = annullato dall'utente: non è un errore.
+		if uint32(hr) != 0x800704C7 {
+			message(fmt.Sprintf("Il selettore file non si è aperto.\nHRESULT: 0x%08X", uint32(hr)))
+		}
+		return
+	}
+
+	var item uintptr
+	hr = comCall(dlg, 20, uintptr(unsafe.Pointer(&item))) // IFileDialog::GetResult
+	if hresultFailed(hr) || item == 0 { return }
+	defer comCall(item, 2)
+
+	var pathPtr uintptr
+	hr = comCall(item, 5, uintptr(0x80058000), uintptr(unsafe.Pointer(&pathPtr))) // IShellItem::GetDisplayName(SIGDN_FILESYSPATH)
+	if hresultFailed(hr) || pathPtr == 0 { return }
+	path := utf16PtrToString(pathPtr)
+	procCoTaskMemFree.Call(pathPtr)
+	if path != "" { loadTextPath(path) }
 }
 func handleDrop(hDrop uintptr) {
 	n, _, _ := procDragQueryFileW.Call(hDrop, 0xFFFFFFFF, 0, 0)
@@ -1932,6 +2013,45 @@ func drawOwnerCombo(di *DRAWITEMSTRUCT) {
 	txt := comboItemText(di.HwndItem, di.ItemID)
 	procDrawTextW.Call(di.HDC, uintptr(unsafe.Pointer(u16(txt))), ^uintptr(0), uintptr(unsafe.Pointer(&rr)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 }
+func initBotolo() {
+	if len(botoloBMP) < 54 || string(botoloBMP[:2]) != "BM" { return }
+	off := int(binary.LittleEndian.Uint32(botoloBMP[10:14]))
+	w := int(int32(binary.LittleEndian.Uint32(botoloBMP[18:22])))
+	h := int(int32(binary.LittleEndian.Uint32(botoloBMP[22:26])))
+	bpp := int(binary.LittleEndian.Uint16(botoloBMP[28:30]))
+	if off <= 0 || w <= 0 || h == 0 || bpp != 24 { return }
+	if h < 0 { h = -h }
+	stride := ((w*3 + 3) / 4) * 4
+	need := off + stride*h
+	if need > len(botoloBMP) { return }
+	pix := append([]byte(nil), botoloBMP[off:need]...)
+	bgR, bgG, bgB := byte(colBG&0xFF), byte((colBG>>8)&0xFF), byte((colBG>>16)&0xFF)
+	for y := 0; y < h; y++ {
+		row := pix[y*stride:]
+		for x := 0; x < w; x++ {
+			b, g, r := row[x*3], row[x*3+1], row[x*3+2]
+			if r > 238 && g > 238 && b > 238 {
+				row[x*3], row[x*3+1], row[x*3+2] = bgB, bgG, bgR
+			}
+		}
+	}
+	botoloPixels, botoloWidth, botoloHeight, botoloStride = pix, w, h, stride
+}
+func drawBotolo(hdc uintptr, client RECT) {
+	if len(botoloPixels) == 0 || botoloWidth <= 0 || botoloHeight <= 0 { return }
+	dw, dh := scale(botoloWidth), scale(botoloHeight)
+	x := int(client.Right) - dw - scale(18)
+	y := int(client.Bottom) - dh - scale(10)
+	if x < scale(10) { x = scale(10) }
+	if y < scale(10) { y = scale(10) }
+	bmi := BITMAPINFO{Header: BITMAPINFOHEADER{
+		Size: uint32(unsafe.Sizeof(BITMAPINFOHEADER{})), Width: int32(botoloWidth), Height: int32(botoloHeight),
+		Planes: 1, BitCount: 24, Compression: 0, SizeImage: uint32(botoloStride*botoloHeight),
+	}}
+	procStretchDIBits.Call(hdc, uintptr(x), uintptr(y), uintptr(dw), uintptr(dh), 0, 0,
+		uintptr(botoloWidth), uintptr(botoloHeight), uintptr(unsafe.Pointer(&botoloPixels[0])), uintptr(unsafe.Pointer(&bmi)), 0, 0x00CC0020)
+}
+
 func paintBackground(hwnd uintptr) {
 	var ps PAINTSTRUCT
 	hdc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
@@ -1945,6 +2065,7 @@ func paintBackground(hwnd uintptr) {
 		if appIcon != 0 {
 			procDrawIconEx.Call(hdc, uintptr(scale(14)), uintptr(scale(14)), appIcon, uintptr(scale(48)), uintptr(scale(48)), 0, 0, DI_NORMAL)
 		}
+		drawBotolo(hdc, r)
 	}
 	procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 }
@@ -2101,6 +2222,9 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 
 func main() {
 	runtime.LockOSThread()
+	hrCOM, _, _ := procCoInitializeEx.Call(0, 0x2) // COINIT_APARTMENTTHREADED
+	if !hresultFailed(hrCOM) { defer procCoUninitialize.Call() }
+	initBotolo()
 	hInst, _, _ := procGetModuleHandleW.Call(0)
 	cur, _, _ := procLoadCursorW.Call(0, 32512)
 	appIcon, _, _ = procLoadIconW.Call(hInst, 1)
@@ -2112,7 +2236,7 @@ func main() {
 	brushSoft, _, _ = procCreateSolidBrush.Call(colSoft)
 	brushLine, _, _ = procCreateSolidBrush.Call(colLine)
 
-	class := u16("KuntaNativeWindowV3")
+	class := u16("KuntaNativeWindowV6")
 	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hInst, HIcon: appIcon, HCursor: cur, HbrBackground: brushBG, LpszClassName: class, HIconSm: appIcon}
 	if r, _, _ := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
 		return
@@ -2165,7 +2289,7 @@ func main() {
 	procSendMessageW.Call(hOutput, EM_SETLIMITTEXT, 0x7FFFFFFE, 0)
 	addButton("Copia risultato", ID_COPY)
 	hStatus = addStatic("Locale · nessun invio esterno", ID_STATUS, false)
-	hFooter = addStatic("ShiduLab", ID_FOOTER, false)
+	hFooter = addStatic("", ID_FOOTER, false)
 
 	layout()
 	procInvalidateRect.Call(hwndMain, 0, 1)
