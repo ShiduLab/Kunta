@@ -27,7 +27,15 @@ const OPS = [
   ['Rima baciata / inclusione progressiva', 'Parametro: nucleo minimo, default 3'],
   ['LetterTransport', 'Parametro: trasporto minimo, default 3'],
   ['Sciarade / salti di dominio', 'Parametro: lunghezza minima segmento, default 2'],
-  ['Kunta il testo (fenomeni)', 'Ricognizione combinata di strutture e ricorrenze']
+  ['Kunta il testo (fenomeni)', 'Ricognizione combinata di strutture e ricorrenze'],
+  ['Isovocaliche', 'Raggruppa parole con lo stesso scheletro vocalico'],
+  ['Isoconsonantiche', 'Raggruppa parole con lo stesso scheletro consonantico'],
+  ['Omovocaliche', 'Stesso materiale vocalico, ordine non rilevante'],
+  ['Omoconsonantiche', 'Stesso materiale consonantico, ordine non rilevante'],
+  ['Omovocaliche iniziali', 'Parametro: quante vocali iniziali confrontare, default 1'],
+  ['Omovocaliche finali', 'Parametro: quante vocali finali confrontare, default 1'],
+  ['Omoconsonantiche iniziali', 'Parametro: quante consonanti iniziali confrontare, default 1'],
+  ['Omoconsonantiche finali', 'Parametro: quante consonanti finali confrontare, default 1']
 ];
 
 const $ = id => document.getElementById(id);
@@ -164,8 +172,46 @@ function repeatedWordsSummary(text,sensitive,maxItems){
   const {freq,display}=freqWords(tokenizeWords(text),sensitive); const a=[...freq.entries()].filter(([,n])=>n>1).sort((x,y)=>y[1]-x[1]||x[0].localeCompare(y[0])).slice(0,maxItems); return a.length?a.map(([k,n])=>`${display.get(k)} = ${n}`).join('\n'):'Nessuna parola ripetuta.';
 }
 function kuntaPhenomena(text,sensitive){ return limitLines([
-  'KUNTA IL TESTO','==============================','','RIPETIZIONI',repeatedWordsSummary(text,sensitive,20),'','SCHEMA RIME / DESINENZE',analyzeRhymeScheme(text,sensitive,3),'','RIMA BACIATA / INCLUSIONE PROGRESSIVA',findInclusionChains(tokenizeWords(text),sensitive,3),'','LETTERTRANSPORT',findLetterTransport(tokenizeWords(text),sensitive,3),'','SCIARADE / SALTI DI DOMINIO',findSciarades(text,sensitive,2)
-].join('\n'),900); }
+  'KUNTA IL TESTO','==============================','','RIPETIZIONI',repeatedWordsSummary(text,sensitive,20),'','SCHEMA RIME / DESINENZE',analyzeRhymeScheme(text,sensitive,3),'','RIMA BACIATA / INCLUSIONE PROGRESSIVA',findInclusionChains(tokenizeWords(text),sensitive,3),'','LETTERTRANSPORT',findLetterTransport(tokenizeWords(text),sensitive,3),'','SCIARADE / SALTI DI DOMINIO',findSciarades(text,sensitive,2),'','ISOVOCALICHE',groupWordSignatures(tokenizeWords(text),'Scheletro vocalico',vowelSkeleton),'','ISOCONSONANTICHE',groupWordSignatures(tokenizeWords(text),'Scheletro consonantico',consonantSkeleton)
+].join('\n'),1100); }
+
+
+function foldItalianVowel(ch){
+  const c=ch.toLowerCase();
+  if('aàáâäãå'.includes(c)) return 'a';
+  if('eèéêë'.includes(c)) return 'e';
+  if('iìíîï'.includes(c)) return 'i';
+  if('oòóôöõ'.includes(c)) return 'o';
+  if('uùúûü'.includes(c)) return 'u';
+  return '';
+}
+function vowelSkeleton(word){
+  let out='';
+  for(const ch of Array.from(cleanWord(word,false))){ const v=foldItalianVowel(ch); if(v) out+=v; }
+  return out;
+}
+function consonantSkeleton(word){
+  let out='';
+  for(const ch of Array.from(cleanWord(word,false))){ if(/\p{L}/u.test(ch) && !foldItalianVowel(ch)) out+=ch.toLowerCase(); }
+  return out;
+}
+function sortedSignature(sig){ return Array.from(sig).sort().join(''); }
+function edgeSignature(sig,n,fromEnd){ const r=Array.from(sig); n=Math.max(1,n|0); if(r.length<n)return ''; return (fromEnd?r.slice(-n):r.slice(0,n)).join(''); }
+function prettySignature(sig){ return Array.from(sig.toUpperCase()).join('-'); }
+function groupWordSignatures(words,label,signature){
+  const groups=new Map(), seen=new Map();
+  for(const raw of words){
+    const clean=cleanWord(raw,false); if(!clean) continue;
+    const key=signature(raw); if(!key) continue;
+    if(!groups.has(key)){groups.set(key,[]);seen.set(key,new Set());}
+    if(!seen.get(key).has(clean)){seen.get(key).add(clean);groups.get(key).push(raw);}
+  }
+  const keys=[...groups.keys()].filter(k=>groups.get(k).length>=2).sort((a,b)=>Array.from(b).length-Array.from(a).length||a.localeCompare(b));
+  let out=`${label}: ${keys.length} gruppi\n\n`;
+  out+=keys.map(k=>`${prettySignature(k)}  →  ${groups.get(k).join(' · ')}`).join('\n');
+  if(!keys.length) out+='Nessun gruppo rilevato nel testo.';
+  return limitLines(out,700);
+}
 
 function analyze(text,op,p,sensitive){
   const words=tokenizeWords(text), lines=normalizeLines(text);
@@ -197,6 +243,14 @@ function analyze(text,op,p,sensitive){
     case 24:return findLetterTransport(words,sensitive,parsePositive(p,3,2,20));
     case 25:return findSciarades(text,sensitive,parsePositive(p,2,1,8));
     case 26:return kuntaPhenomena(text,sensitive);
+    case 27:return groupWordSignatures(words,'Isovocaliche · stesso scheletro vocalico',vowelSkeleton);
+    case 28:return groupWordSignatures(words,'Isoconsonantiche · stesso scheletro consonantico',consonantSkeleton);
+    case 29:return groupWordSignatures(words,'Omovocaliche · stesso materiale vocalico (ordine non rilevante)',w=>sortedSignature(vowelSkeleton(w)));
+    case 30:return groupWordSignatures(words,'Omoconsonantiche · stesso materiale consonantico (ordine non rilevante)',w=>sortedSignature(consonantSkeleton(w)));
+    case 31:{const n=parsePositive(p,1,1,8);return groupWordSignatures(words,`Omovocaliche iniziali · prime ${n} vocali`,w=>edgeSignature(vowelSkeleton(w),n,false));}
+    case 32:{const n=parsePositive(p,1,1,8);return groupWordSignatures(words,`Omovocaliche finali · ultime ${n} vocali`,w=>edgeSignature(vowelSkeleton(w),n,true));}
+    case 33:{const n=parsePositive(p,1,1,8);return groupWordSignatures(words,`Omoconsonantiche iniziali · prime ${n} consonanti`,w=>edgeSignature(consonantSkeleton(w),n,false));}
+    case 34:{const n=parsePositive(p,1,1,8);return groupWordSignatures(words,`Omoconsonantiche finali · ultime ${n} consonanti`,w=>edgeSignature(consonantSkeleton(w),n,true));}
     default:return 'Operazione non riconosciuta.';
   }
 }

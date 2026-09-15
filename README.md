@@ -78,6 +78,12 @@ Puoi:
 - coppie e gruppi di anagrammi;
 - acrostico delle righe;
 - telestico delle righe;
+- isovocaliche — stesso scheletro vocalico;
+- isoconsonantiche — stesso scheletro consonantico;
+- omovocaliche — stesso materiale vocalico, anche con ordine diverso;
+- omoconsonantiche — stesso materiale consonantico, anche con ordine diverso;
+- omovocaliche iniziali e finali;
+- omoconsonantiche iniziali e finali;
 - sciarade interne;
 - candidati a salti di dominio;
 - LetterTransport;
@@ -163,6 +169,8 @@ Kunta è un'applicazione Windows portatile: l'eseguibile funziona senza installa
 
 L'icona del programma è l'avatar di Kunta; **Botolo + ShiduLab** restano la firma grafica nell'interfaccia.
 
+L'interfaccia Desktop segue il tema applicazioni di Windows: scura quando Windows usa il tema scuro, chiara quando usa il tema chiaro.
+
 ## Contatti
 
 **ShiduLab**  
@@ -194,7 +202,7 @@ Su sistemi/browser compatibili, la PWA è predisposta anche per ricevere testo t
 ```text
 Kunta/
 ├─ README.md
-├─ .gitignore
+├─ Kunta.exe
 ├─ desktop/
 │  ├─ main.go
 │  ├─ embed_icon.py

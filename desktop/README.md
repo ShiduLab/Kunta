@@ -78,6 +78,12 @@ Puoi:
 - coppie e gruppi di anagrammi;
 - acrostico delle righe;
 - telestico delle righe;
+- isovocaliche — stesso scheletro vocalico;
+- isoconsonantiche — stesso scheletro consonantico;
+- omovocaliche — stesso materiale vocalico, anche con ordine diverso;
+- omoconsonantiche — stesso materiale consonantico, anche con ordine diverso;
+- omovocaliche iniziali e finali;
+- omoconsonantiche iniziali e finali;
 - sciarade interne;
 - candidati a salti di dominio;
 - LetterTransport;
@@ -162,6 +168,8 @@ La casella **Maiuscole/minuscole distinte** decide se, per l'analisi scelta, `A`
 Kunta è un'applicazione Windows portatile: l'eseguibile funziona senza installazione. Le analisi vengono eseguite localmente sul testo caricato nell'applicazione.
 
 L'icona del programma è l'avatar di Kunta; **Botolo + ShiduLab** restano la firma grafica nell'interfaccia.
+
+L'interfaccia Desktop segue il tema applicazioni di Windows: scura quando Windows usa il tema scuro, chiara quando usa il tema chiaro.
 
 ## Contatti
 

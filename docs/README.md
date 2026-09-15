@@ -3,7 +3,7 @@
 **Versione mobile / PWA — ShiduLab 2026**
 
 Kunta è un piccolo laboratorio testuale che conta, osserva, ordina e rac-conta i testi.
-Questa versione gira nel browser del telefono, può essere aggiunta alla schermata Home e, dopo il primo caricamento, funziona offline.
+Questa versione gira nel browser del telefono, può essere aggiunta alla schermata Home e, dopo il primo caricamento, funziona offline. L'interfaccia segue automaticamente il tema chiaro/scuro del dispositivo.
 
 ## Cosa c'è già
 
@@ -13,6 +13,8 @@ La versione mobile porta le funzioni della build Windows attuale, tra cui:
 - frequenze e ripetizioni;
 - **Ordina parole alfabeticamente**;
 - palindromi, bifronti, anagrammi, acrostici e telestici;
+- isovocaliche e isoconsonantiche;
+- omovocaliche e omoconsonantiche, comprese le varianti iniziali e finali;
 - schema rime / desinenze;
 - rima baciata / inclusione progressiva;
 - LetterTransport;

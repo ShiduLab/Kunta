@@ -52,15 +52,19 @@ const (
 	SS_RIGHT = 0x00000002
 	SS_ICON  = 0x00000003
 
-	WM_CREATE    = 0x0001
-	WM_DESTROY   = 0x0002
-	WM_SIZE      = 0x0005
-	WM_COMMAND   = 0x0111
-	WM_SETFONT   = 0x0030
-	WM_SETICON   = 0x0080
-	WM_DROPFILES = 0x0233
-	WM_COPY      = 0x0301
-	WM_PASTE     = 0x0302
+	WM_CREATE          = 0x0001
+	WM_DESTROY         = 0x0002
+	WM_SIZE            = 0x0005
+	WM_COMMAND         = 0x0111
+	WM_SETFONT         = 0x0030
+	WM_SETICON         = 0x0080
+	WM_CTLCOLOREDIT    = 0x0133
+	WM_CTLCOLORLISTBOX = 0x0134
+	WM_CTLCOLORBTN     = 0x0135
+	WM_CTLCOLORSTATIC  = 0x0138
+	WM_DROPFILES       = 0x0233
+	WM_COPY            = 0x0301
+	WM_PASTE           = 0x0302
 
 	EM_SETSEL       = 0x00B1
 	EM_SETCUEBANNER = 0x1501
@@ -84,26 +88,35 @@ const (
 	OFN_PATHMUSTEXIST  = 0x00000800
 	LR_DEFAULTCOLOR    = 0x0000
 
-	ICON_SMALL = 0
-	ICON_BIG   = 1
+	ICON_SMALL  = 0
+	ICON_BIG    = 1
+	TRANSPARENT = 1
+
+	RRF_RT_REG_DWORD              = 0x00000010
+	HKEY_CURRENT_USER             = 0x80000001
+	DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 
 	CW_USEDEFAULT = 0x80000000
 )
 
 const (
-	IDPaste      = 101
-	IDOpen       = 102
-	IDClear      = 103
-	IDInput      = 104
-	IDOperation  = 105
-	IDParam      = 106
-	IDCase       = 107
-	IDRun        = 108
-	IDResult     = 109
-	IDCopyResult = 110
-	IDBrandIcon  = 111
-	IDBrandText  = 112
-	IDParamLabel = 113
+	IDPaste       = 101
+	IDOpen        = 102
+	IDClear       = 103
+	IDInput       = 104
+	IDOperation   = 105
+	IDParam       = 106
+	IDCase        = 107
+	IDRun         = 108
+	IDResult      = 109
+	IDCopyResult  = 110
+	IDBrandIcon   = 111
+	IDBrandText   = 112
+	IDParamLabel  = 113
+	IDTitle       = 114
+	IDSubtitle    = 115
+	IDInputLabel  = 116
+	IDResultLabel = 117
 )
 
 type POINT struct{ X, Y int32 }
@@ -169,6 +182,9 @@ var (
 	comdlg32 = syscall.NewLazyDLL("comdlg32.dll")
 	shell32  = syscall.NewLazyDLL("shell32.dll")
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
+	uxtheme  = syscall.NewLazyDLL("uxtheme.dll")
+	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
+	advapi32 = syscall.NewLazyDLL("advapi32.dll")
 
 	pRegisterClassExW         = user32.NewProc("RegisterClassExW")
 	pCreateWindowExW          = user32.NewProc("CreateWindowExW")
@@ -191,13 +207,22 @@ var (
 	pDestroyIcon              = user32.NewProc("DestroyIcon")
 	pSetFocus                 = user32.NewProc("SetFocus")
 
-	pGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
-	pGetStockObject   = gdi32.NewProc("GetStockObject")
-	pGetOpenFileNameW = comdlg32.NewProc("GetOpenFileNameW")
-	pDragAcceptFiles  = shell32.NewProc("DragAcceptFiles")
-	pDragQueryFileW   = shell32.NewProc("DragQueryFileW")
-	pDragFinish       = shell32.NewProc("DragFinish")
+	pGetModuleHandleW                        = kernel32.NewProc("GetModuleHandleW")
+	pGetStockObject                          = gdi32.NewProc("GetStockObject")
+	pCreateSolidBrush                        = gdi32.NewProc("CreateSolidBrush")
+	pDeleteObject                            = gdi32.NewProc("DeleteObject")
+	pSetTextColor                            = gdi32.NewProc("SetTextColor")
+	pSetBkColor                              = gdi32.NewProc("SetBkColor")
+	pSetBkMode                               = gdi32.NewProc("SetBkMode")
+	pCreateFontW                             = gdi32.NewProc("CreateFontW")
+	pGetOpenFileNameW                        = comdlg32.NewProc("GetOpenFileNameW")
+	pDragAcceptFiles                         = shell32.NewProc("DragAcceptFiles")
+	pDragQueryFileW                          = shell32.NewProc("DragQueryFileW")
+	pDragFinish                              = shell32.NewProc("DragFinish")
 	pSetCurrentProcessExplicitAppUserModelID = shell32.NewProc("SetCurrentProcessExplicitAppUserModelID")
+	pSetWindowTheme                          = uxtheme.NewProc("SetWindowTheme")
+	pDwmSetWindowAttribute                   = dwmapi.NewProc("DwmSetWindowAttribute")
+	pRegGetValueW                            = advapi32.NewProc("RegGetValueW")
 )
 
 var (
@@ -214,6 +239,15 @@ var (
 	hIconBig       uintptr
 	hIconSmall     uintptr
 	hBrandIcon     uintptr
+	hTitleFont     uintptr
+	hSmallFont     uintptr
+	hBgBrush       uintptr
+	hPanelBrush    uintptr
+	darkMode       bool
+	bgColor        uintptr
+	panelColor     uintptr
+	textColor      uintptr
+	mutedColor     uintptr
 )
 
 var operations = []string{
@@ -244,6 +278,14 @@ var operations = []string{
 	"LetterTransport",
 	"Sciarade / salti di dominio",
 	"Kunta il testo (fenomeni)",
+	"Isovocaliche (scheletro vocalico)",
+	"Isoconsonantiche (scheletro consonantico)",
+	"Omovocaliche (materiale vocalico)",
+	"Omoconsonantiche (materiale consonantico)",
+	"Omovocaliche iniziali",
+	"Omovocaliche finali",
+	"Omoconsonantiche iniziali",
+	"Omoconsonantiche finali",
 }
 
 func wptr(s string) *uint16 {
@@ -301,6 +343,60 @@ func abs(n int) int {
 	return n
 }
 
+func rgb(r, g, b byte) uintptr { return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16 }
+
+func systemUsesDarkApps() bool {
+	var value uint32 = 1
+	sz := uint32(4)
+	sub := wptr(`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`)
+	name := wptr("AppsUseLightTheme")
+	r, _, _ := pRegGetValueW.Call(HKEY_CURRENT_USER, uintptr(unsafe.Pointer(sub)), uintptr(unsafe.Pointer(name)), RRF_RT_REG_DWORD, 0, uintptr(unsafe.Pointer(&value)), uintptr(unsafe.Pointer(&sz)))
+	return r == 0 && value == 0
+}
+
+func initTheme() {
+	darkMode = systemUsesDarkApps()
+	if darkMode {
+		bgColor = rgb(16, 20, 15)
+		panelColor = rgb(24, 30, 23)
+		textColor = rgb(238, 242, 235)
+		mutedColor = rgb(174, 184, 170)
+	} else {
+		bgColor = rgb(246, 247, 244)
+		panelColor = rgb(255, 255, 255)
+		textColor = rgb(23, 26, 22)
+		mutedColor = rgb(102, 112, 100)
+	}
+	hBgBrush, _, _ = pCreateSolidBrush.Call(bgColor)
+	hPanelBrush, _, _ = pCreateSolidBrush.Call(panelColor)
+}
+
+func applyWindowTheme(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	if darkMode {
+		pSetWindowTheme.Call(hwnd, uintptr(unsafe.Pointer(wptr("DarkMode_Explorer"))), 0)
+	} else {
+		pSetWindowTheme.Call(hwnd, uintptr(unsafe.Pointer(wptr("Explorer"))), 0)
+	}
+}
+
+func applyDarkTitlebar(hwnd uintptr) {
+	if !darkMode || hwnd == 0 {
+		return
+	}
+	v := int32(1)
+	if r, _, _ := pDwmSetWindowAttribute.Call(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, uintptr(unsafe.Pointer(&v)), unsafe.Sizeof(v)); int32(r) != 0 {
+		pDwmSetWindowAttribute.Call(hwnd, 19, uintptr(unsafe.Pointer(&v)), unsafe.Sizeof(v))
+	}
+}
+
+func createSegoeFont(height int32, weight int32) uintptr {
+	h, _, _ := pCreateFontW.Call(uintptr(height), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 0, 5, uintptr(unsafe.Pointer(wptr("Segoe UI"))))
+	return h
+}
+
 func createControl(class, text string, style uintptr, id int) uintptr {
 	h, _, _ := pCreateWindowExW.Call(
 		0,
@@ -312,6 +408,7 @@ func createControl(class, text string, style uintptr, id int) uintptr {
 	if h != 0 && hFont != 0 {
 		pSendMessageW.Call(h, WM_SETFONT, hFont, 1)
 	}
+	applyWindowTheme(h)
 	return h
 }
 
@@ -353,45 +450,51 @@ func layout() {
 	var rc RECT
 	pGetClientRect.Call(hwndMain, uintptr(unsafe.Pointer(&rc)))
 	w, h := int(rc.Right-rc.Left), int(rc.Bottom-rc.Top)
-	if w < 720 {
-		w = 720
+	if w < 760 {
+		w = 760
 	}
-	if h < 580 {
-		h = 580
+	if h < 620 {
+		h = 620
 	}
-	margin := 12
-	top := 10
+	margin := 18
 
-	move(IDPaste, margin, top, 90, 28)
-	move(IDOpen, margin+98, top, 110, 28)
-	move(IDClear, margin+216, top, 80, 28)
+	move(IDTitle, margin, 12, 260, 34)
+	move(IDSubtitle, margin, 45, 360, 22)
 
-	inputTop := top + 38
-	inputH := (h - 190) / 2
+	toolY := 76
+	move(IDPaste, margin, toolY, 92, 30)
+	move(IDOpen, margin+102, toolY, 118, 30)
+	move(IDClear, margin+230, toolY, 82, 30)
+
+	move(IDInputLabel, margin, 116, 160, 22)
+	inputTop := 140
+	inputH := (h - 304) / 2
 	if inputH < 150 {
 		inputH = 150
 	}
 	move(IDInput, margin, inputTop, w-2*margin, inputH)
 
-	y := inputTop + inputH + 10
-	move(IDOperation, margin, y, 250, 220)
-	move(IDParamLabel, margin+262, y+4, 155, 22)
-	move(IDParam, margin+420, y, 190, 26)
-	move(IDCase, margin+620, y+2, 190, 24)
-	move(IDRun, w-margin-105, y-1, 105, 29)
+	y := inputTop + inputH + 14
+	move(IDOperation, margin, y, w-2*margin-126, 300)
+	move(IDRun, w-margin-112, y-1, 112, 31)
+	paramY := y + 38
+	move(IDParamLabel, margin, paramY+5, 150, 22)
+	move(IDParam, margin+153, paramY, 180, 28)
+	move(IDCase, margin+345, paramY+3, 230, 25)
 
-	resultTop := y + 38
-	brandH := 34
-	resultH := h - resultTop - brandH - 12
-	if resultH < 120 {
-		resultH = 120
+	resultLabelY := paramY + 38
+	move(IDResultLabel, margin, resultLabelY, 160, 22)
+	resultTop := resultLabelY + 24
+	resultH := h - resultTop - 58
+	if resultH < 130 {
+		resultH = 130
 	}
 	move(IDResult, margin, resultTop, w-2*margin, resultH)
-	move(IDCopyResult, margin, resultTop+resultH+6, 120, 26)
+	move(IDCopyResult, margin, resultTop+resultH+8, 132, 28)
 
-	brandY := resultTop + resultH + 3
-	move(IDBrandIcon, w-margin-125, brandY, 32, 32)
-	move(IDBrandText, w-margin-90, brandY+7, 90, 22)
+	brandY := resultTop + resultH + 5
+	move(IDBrandIcon, w-margin-130, brandY, 32, 32)
+	move(IDBrandText, w-margin-94, brandY+7, 94, 22)
 }
 
 func move(id, x, y, w, h int) {
@@ -411,6 +514,14 @@ func move(id, x, y, w, h int) {
 		hwnd = hwndParam
 	case IDParamLabel:
 		hwnd = hwndParamLabel
+	case IDTitle:
+		hwnd = getDlgItem(IDTitle)
+	case IDSubtitle:
+		hwnd = getDlgItem(IDSubtitle)
+	case IDInputLabel:
+		hwnd = getDlgItem(IDInputLabel)
+	case IDResultLabel:
+		hwnd = getDlgItem(IDResultLabel)
 	case IDCase:
 		hwnd = hwndCase
 	case IDRun:
@@ -456,6 +567,10 @@ func updateParamHint() {
 		label, cue = "Segmento minimo:", "default 2"
 	case 26:
 		label, cue = "Sensibilità:", "facoltativo"
+	case 31, 32:
+		label, cue = "Vocali dal bordo:", "default 1"
+	case 33, 34:
+		label, cue = "Consonanti dal bordo:", "default 1"
 	}
 	setText(hwndParamLabel, label)
 	pSendMessageW.Call(hwndParam, EM_SETCUEBANNER, 1, uintptr(unsafe.Pointer(wptr(cue))))
@@ -598,6 +713,118 @@ func parseMinLen(param string) int {
 		return 3
 	}
 	return n
+}
+
+func foldItalianVowel(r rune) (rune, bool) {
+	r = []rune(strings.ToLower(string(r)))[0]
+	switch r {
+	case 'a', 'à', 'á', 'â', 'ä', 'ã', 'å':
+		return 'a', true
+	case 'e', 'è', 'é', 'ê', 'ë':
+		return 'e', true
+	case 'i', 'ì', 'í', 'î', 'ï':
+		return 'i', true
+	case 'o', 'ò', 'ó', 'ô', 'ö', 'õ':
+		return 'o', true
+	case 'u', 'ù', 'ú', 'û', 'ü':
+		return 'u', true
+	}
+	return 0, false
+}
+
+func vowelSkeleton(word string) string {
+	var b strings.Builder
+	for _, r := range cleanWord(word, false) {
+		if v, ok := foldItalianVowel(r); ok {
+			b.WriteRune(v)
+		}
+	}
+	return b.String()
+}
+
+func consonantSkeleton(word string) string {
+	var b strings.Builder
+	for _, r := range cleanWord(word, false) {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		if _, ok := foldItalianVowel(r); !ok {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
+}
+
+func sortedSignature(s string) string {
+	r := []rune(s)
+	sort.Slice(r, func(i, j int) bool { return r[i] < r[j] })
+	return string(r)
+}
+
+func edgeSignature(s string, n int, fromEnd bool) string {
+	r := []rune(s)
+	if n < 1 {
+		n = 1
+	}
+	if len(r) < n {
+		return ""
+	}
+	if fromEnd {
+		return string(r[len(r)-n:])
+	}
+	return string(r[:n])
+}
+
+func prettySignature(s string) string {
+	r := []rune(strings.ToUpper(s))
+	parts := make([]string, len(r))
+	for i, c := range r {
+		parts[i] = string(c)
+	}
+	return strings.Join(parts, "-")
+}
+
+func groupWordSignatures(words []string, label string, signature func(string) string) string {
+	groups := map[string][]string{}
+	seenWord := map[string]map[string]bool{}
+	for _, raw := range words {
+		clean := cleanWord(raw, false)
+		if clean == "" {
+			continue
+		}
+		key := signature(raw)
+		if key == "" {
+			continue
+		}
+		if seenWord[key] == nil {
+			seenWord[key] = map[string]bool{}
+		}
+		if !seenWord[key][clean] {
+			seenWord[key][clean] = true
+			groups[key] = append(groups[key], raw)
+		}
+	}
+	keys := make([]string, 0, len(groups))
+	for k, g := range groups {
+		if len(g) >= 2 {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if len([]rune(keys[i])) == len([]rune(keys[j])) {
+			return keys[i] < keys[j]
+		}
+		return len([]rune(keys[i])) > len([]rune(keys[j]))
+	})
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s: %d gruppi\n\n", label, len(keys))
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s  →  %s\n", prettySignature(k), strings.Join(groups[k], " · "))
+	}
+	if len(keys) == 0 {
+		b.WriteString("Nessun gruppo rilevato nel testo.")
+	}
+	return limitLines(b.String(), 700)
 }
 
 func analyze(text string, op int, param string, sensitive bool) string {
@@ -871,6 +1098,26 @@ func analyze(text string, op int, param string, sensitive bool) string {
 		return findSciarades(text, sensitive, parsePositive(param, 2, 1, 8))
 	case 26:
 		return kuntaPhenomena(text, sensitive)
+	case 27:
+		return groupWordSignatures(words, "Isovocaliche · stesso scheletro vocalico", vowelSkeleton)
+	case 28:
+		return groupWordSignatures(words, "Isoconsonantiche · stesso scheletro consonantico", consonantSkeleton)
+	case 29:
+		return groupWordSignatures(words, "Omovocaliche · stesso materiale vocalico (ordine non rilevante)", func(w string) string { return sortedSignature(vowelSkeleton(w)) })
+	case 30:
+		return groupWordSignatures(words, "Omoconsonantiche · stesso materiale consonantico (ordine non rilevante)", func(w string) string { return sortedSignature(consonantSkeleton(w)) })
+	case 31:
+		n := parsePositive(param, 1, 1, 8)
+		return groupWordSignatures(words, fmt.Sprintf("Omovocaliche iniziali · prime %d vocali", n), func(w string) string { return edgeSignature(vowelSkeleton(w), n, false) })
+	case 32:
+		n := parsePositive(param, 1, 1, 8)
+		return groupWordSignatures(words, fmt.Sprintf("Omovocaliche finali · ultime %d vocali", n), func(w string) string { return edgeSignature(vowelSkeleton(w), n, true) })
+	case 33:
+		n := parsePositive(param, 1, 1, 8)
+		return groupWordSignatures(words, fmt.Sprintf("Omoconsonantiche iniziali · prime %d consonanti", n), func(w string) string { return edgeSignature(consonantSkeleton(w), n, false) })
+	case 34:
+		n := parsePositive(param, 1, 1, 8)
+		return groupWordSignatures(words, fmt.Sprintf("Omoconsonantiche finali · ultime %d consonanti", n), func(w string) string { return edgeSignature(consonantSkeleton(w), n, true) })
 	}
 	return "Operazione non riconosciuta."
 }
@@ -1492,7 +1739,11 @@ func kuntaPhenomena(text string, sensitive bool) string {
 	b.WriteString(findLetterTransport(tokenizeWords(text), sensitive, 3))
 	b.WriteString("\n\nSCIARADE / SALTI DI DOMINIO\n")
 	b.WriteString(findSciarades(text, sensitive, 2))
-	return limitLines(b.String(), 900)
+	b.WriteString("\n\nISOVOCALICHE\n")
+	b.WriteString(groupWordSignatures(tokenizeWords(text), "Scheletro vocalico", vowelSkeleton))
+	b.WriteString("\n\nISOCONSONANTICHE\n")
+	b.WriteString(groupWordSignatures(tokenizeWords(text), "Scheletro consonantico", consonantSkeleton))
+	return limitLines(b.String(), 1100)
 }
 
 func limitLines(s string, max int) string {
@@ -1521,7 +1772,23 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_CREATE:
 		hwndMain = hwnd
-		hFont, _, _ = pGetStockObject.Call(DEFAULT_GUI_FONT)
+		applyDarkTitlebar(hwnd)
+		hFont = createSegoeFont(-17, 400)
+		if hFont == 0 {
+			hFont, _, _ = pGetStockObject.Call(DEFAULT_GUI_FONT)
+		}
+		hTitleFont = createSegoeFont(-28, 600)
+		hSmallFont = createSegoeFont(-15, 400)
+		title := createControl("STATIC", "Kunta", SS_LEFT, IDTitle)
+		sub := createControl("STATIC", "Conta · osserva · ordina · rac-conta", SS_LEFT, IDSubtitle)
+		createControl("STATIC", "TESTO", SS_LEFT, IDInputLabel)
+		createControl("STATIC", "RISULTATO", SS_LEFT, IDResultLabel)
+		if hTitleFont != 0 {
+			pSendMessageW.Call(title, WM_SETFONT, hTitleFont, 1)
+		}
+		if hSmallFont != 0 {
+			pSendMessageW.Call(sub, WM_SETFONT, hSmallFont, 1)
+		}
 		createControl("BUTTON", "Incolla", BS_PUSHBUTTON|WS_TABSTOP, IDPaste)
 		createControl("BUTTON", "Apri testo...", BS_PUSHBUTTON|WS_TABSTOP, IDOpen)
 		createControl("BUTTON", "Pulisci", BS_PUSHBUTTON|WS_TABSTOP, IDClear)
@@ -1550,6 +1817,17 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	case WM_SIZE:
 		layout()
 		return 0
+	case WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX:
+		hdc := wParam
+		pSetTextColor.Call(hdc, textColor)
+		pSetBkColor.Call(hdc, panelColor)
+		return hPanelBrush
+	case WM_CTLCOLORSTATIC, WM_CTLCOLORBTN:
+		hdc := wParam
+		pSetTextColor.Call(hdc, textColor)
+		pSetBkColor.Call(hdc, bgColor)
+		pSetBkMode.Call(hdc, TRANSPARENT)
+		return hBgBrush
 	case WM_DROPFILES:
 		droppedFile(wParam)
 		return 0
@@ -1580,6 +1858,21 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case WM_DESTROY:
+		if hTitleFont != 0 {
+			pDeleteObject.Call(hTitleFont)
+		}
+		if hSmallFont != 0 {
+			pDeleteObject.Call(hSmallFont)
+		}
+		if hFont != 0 {
+			pDeleteObject.Call(hFont)
+		}
+		if hBgBrush != 0 {
+			pDeleteObject.Call(hBgBrush)
+		}
+		if hPanelBrush != 0 {
+			pDeleteObject.Call(hPanelBrush)
+		}
 		pPostQuitMessage.Call(0)
 		return 0
 	}
@@ -1589,6 +1882,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 
 func main() {
 	runtime.LockOSThread()
+	initTheme()
 	// Identita stabile per taskbar/pinning di Windows.
 	pSetCurrentProcessExplicitAppUserModelID.Call(uintptr(unsafe.Pointer(wptr("ShiduLab.Kunta"))))
 	hInst, _, _ := pGetModuleHandleW.Call(0)
@@ -1597,7 +1891,7 @@ func main() {
 	hIconBig = createIconFromICO(kuntaICO, 32)
 	hIconSmall = createIconFromICO(kuntaICO, 16)
 	hBrandIcon = createIconFromICO(botoloICO, 32)
-	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hInst, HIcon: hIconBig, HCursor: cursor, HbrBackground: COLOR_WINDOW + 1, LpszClassName: className, HIconSm: hIconSmall}
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hInst, HIcon: hIconBig, HCursor: cursor, HbrBackground: hBgBrush, LpszClassName: className, HIconSm: hIconSmall}
 	if r, _, _ := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
 		panic("RegisterClassExW")
 	}
