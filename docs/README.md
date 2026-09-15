@@ -12,9 +12,15 @@ La versione mobile porta le funzioni della build Windows attuale, tra cui:
 - conteggi di caratteri, parole, righe, spazi, cifre e punteggiatura;
 - frequenze e ripetizioni;
 - **Ordina parole alfabeticamente**;
-- palindromi, bifronti, anagrammi, acrostici e telestici;
+- palindromo puro, palindromo inverso, palindromo contrario, bifronti, anagrammi, acrostici e telestici;
 - isovocaliche e isoconsonantiche;
 - omovocaliche e omoconsonantiche, comprese le varianti iniziali e finali;
+- isogrammi, parole alfabetiche e alfabetiche inverse;
+- allitterazioni, assonanze e consonanze;
+- ossimori / contrasti candidati;
+- ricerca per iniziale, finale, sequenza e lunghezza;
+- doppie / triple e sequenze ripetute;
+- elimina duplicati, estrai parole, maiuscolo / minuscolo;
 - schema rime / desinenze;
 - rima baciata / inclusione progressiva;
 - LetterTransport;

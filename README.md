@@ -62,18 +62,27 @@ Puoi:
 - parole ripetute;
 - frequenza delle lettere;
 - frequenza delle parole;
-- parola più corta / più lunga.
+- parola più corta / più lunga;
+- lunghezza media delle parole;
+- distribuzione delle lunghezze;
+- ricerca per iniziale, finale, sequenza contenuta e lunghezza esatta;
+- doppie / triple e sequenze ripetute.
 
 ### Osservazione editoriale
 
 - **Ordina parole alfabeticamente** — rende immediatamente visibili ripetizioni, ricorrenze, famiglie e tic lessicali;
 - inverti il testo;
 - inverti l'ordine delle parole;
-- estrai solo numeri.
+- estrai solo numeri;
+- estrai parole;
+- elimina duplicati;
+- conversione MAIUSCOLO / minuscolo.
 
 ### Enigmistica e strutture del testo
 
-- palindromi;
+- palindromo puro;
+- palindromo inverso;
+- palindromo contrario;
 - bifronti presenti nel testo;
 - coppie e gruppi di anagrammi;
 - acrostico delle righe;
@@ -84,6 +93,12 @@ Puoi:
 - omoconsonantiche — stesso materiale consonantico, anche con ordine diverso;
 - omovocaliche iniziali e finali;
 - omoconsonantiche iniziali e finali;
+- isogrammi;
+- parole alfabetiche e alfabetiche inverse;
+- allitterazioni;
+- assonanze;
+- consonanze;
+- ossimori / contrasti candidati;
 - sciarade interne;
 - candidati a salti di dominio;
 - LetterTransport;

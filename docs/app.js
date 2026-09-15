@@ -14,7 +14,7 @@ const OPS = [
   ['Frequenza lettere', 'Classifica le lettere per frequenza'],
   ['Frequenza parole', 'Classifica le parole per frequenza'],
   ['Parola più corta / più lunga', 'Trova gli estremi di lunghezza'],
-  ['Palindromi', 'Parametro: lunghezza minima, default 3'],
+  ['Palindromo puro', 'Parametro: lunghezza minima, default 3'],
   ['Bifronti', 'Parametro: lunghezza minima, default 3'],
   ['Anagrammi', 'Parametro: lunghezza minima, default 3'],
   ['Acrostico', 'Prima lettera/cifra utile di ogni riga non vuota'],
@@ -35,7 +35,28 @@ const OPS = [
   ['Omovocaliche iniziali', 'Parametro: quante vocali iniziali confrontare, default 1'],
   ['Omovocaliche finali', 'Parametro: quante vocali finali confrontare, default 1'],
   ['Omoconsonantiche iniziali', 'Parametro: quante consonanti iniziali confrontare, default 1'],
-  ['Omoconsonantiche finali', 'Parametro: quante consonanti finali confrontare, default 1']
+  ['Omoconsonantiche finali', 'Parametro: quante consonanti finali confrontare, default 1'],
+  ['Lunghezza media parole', 'Calcola la lunghezza media delle parole'],
+  ['Distribuzione lunghezze', 'Conta quante parole hanno 1, 2, 3… lettere'],
+  ['Parole con iniziale', 'Parametro: una o più lettere iniziali'],
+  ['Parole con finale', 'Parametro: una o più lettere finali'],
+  ['Parole contenenti sequenza', 'Parametro: sequenza da cercare dentro le parole'],
+  ['Parole di lunghezza N', 'Parametro: numero esatto di lettere'],
+  ['Doppie / triple', 'Rileva lettere consecutive ripetute nelle parole'],
+  ['Sequenze ripetute', 'Parametro: lunghezza minima della sequenza, default 2'],
+  ['Isogrammi', 'Parole senza lettere ripetute'],
+  ['Parole alfabetiche', 'Lettere in ordine alfabetico crescente'],
+  ['Parole alfabetiche inverse', 'Lettere in ordine alfabetico decrescente'],
+  ['Elimina duplicati', 'Restituisce le parole una sola volta, nell’ordine di apparizione'],
+  ['Estrai parole', 'Estrae solo le parole dal testo'],
+  ['Testo in MAIUSCOLO', 'Converte il testo in maiuscolo'],
+  ['Testo in minuscolo', 'Converte il testo in minuscolo'],
+  ['Palindromo inverso', 'Inverte ogni parola: Rima → Amir'],
+  ['Palindromo contrario', 'Rileva forme tipo POSSESSO: prima lettera fissa, resto palindromo'],
+  ['Allitterazioni', 'Raggruppa parole per lettera iniziale ricorrente'],
+  ['Assonanze', 'Raggruppa parole per coda vocalica'],
+  ['Consonanze', 'Raggruppa parole per coda consonantica'],
+  ['Ossimori — candidati', 'Cerca coppie di termini semanticamente contrari o paradossali vicini']
 ];
 
 const $ = id => document.getElementById(id);
@@ -213,6 +234,80 @@ function groupWordSignatures(words,label,signature){
   return limitLines(out,700);
 }
 
+
+function wordLen(w){ return Array.from(cleanWord(w,true)).length; }
+function uniqueDisplayWords(words,sensitive){
+  const {display}=freqWords(words,sensitive); return [...display.values()];
+}
+function filterWordsBy(words,p,sensitive,mode){
+  const q=normalizeCase(p.trim(),sensitive); if(!q)return 'Scrivi il parametro da cercare.';
+  const a=uniqueDisplayWords(words,sensitive).filter(w=>{
+    const k=normalizeCase(cleanWord(w,true),sensitive);
+    return mode==='start'?k.startsWith(q):mode==='end'?k.endsWith(q):k.includes(q);
+  });
+  return `${a.length} parole trovate\n\n`+a.join('\n');
+}
+function findRepeatedRuns(words){
+  const out=[];
+  for(const w of uniqueDisplayWords(words,false)){
+    const rr=Array.from(cleanWord(w,false)); const runs=[];
+    for(let i=0;i<rr.length;){ let j=i+1; while(j<rr.length&&rr[j]===rr[i])j++; if(j-i>=2)runs.push(rr.slice(i,j).join('')); i=j; }
+    if(runs.length) out.push(`${w}  →  ${runs.join(' · ')}`);
+  }
+  return `Parole con doppie/triple: ${out.length}\n\n`+out.join('\n');
+}
+function findRepeatedSequences(words,minLen){
+  const out=[];
+  for(const w of uniqueDisplayWords(words,false)){
+    const a=Array.from(cleanWord(w,false)); const found=new Set();
+    for(let n=minLen;n<=Math.floor(a.length/2);n++){
+      for(let i=0;i+n<=a.length;i++){
+        const seq=a.slice(i,i+n).join(''); let c=0;
+        for(let j=0;j+n<=a.length;j++) if(a.slice(j,j+n).join('')===seq)c++;
+        if(c>1)found.add(seq);
+      }
+    }
+    if(found.size) out.push(`${w}  →  ${[...found].sort((x,y)=>y.length-x.length||x.localeCompare(y)).join(' · ')}`);
+  }
+  return `Parole con sequenze ripetute: ${out.length}\nLunghezza minima: ${minLen}\n\n`+out.join('\n');
+}
+function isIsogram(w){ const a=Array.from(cleanWord(w,false)).filter(ch=>/\p{L}/u.test(ch)); return a.length>1&&new Set(a).size===a.length; }
+function alphabeticWord(w,descending=false){
+  const a=Array.from(cleanWord(w,false)).filter(ch=>/\p{L}/u.test(ch)); if(a.length<2)return false;
+  for(let i=1;i<a.length;i++){ const c=a[i-1].localeCompare(a[i],'it',{sensitivity:'base'}); if(descending?c<0:c>0)return false; }
+  return true;
+}
+function reverseWordDisplay(w){
+  const raw=cleanWord(w,true); const rev=reverseRunes(raw.toLowerCase());
+  if(raw && raw[0]===raw[0].toUpperCase() && raw[0]!==raw[0].toLowerCase()) return rev.charAt(0).toUpperCase()+rev.slice(1);
+  return rev;
+}
+function findContraryPalindromes(words,minLen){
+  const out=[];
+  for(const w of uniqueDisplayWords(words,false)){
+    const k=cleanWord(w,false), r=Array.from(k); if(r.length<minLen+1)continue;
+    const tail=r.slice(1).join(''); if(tail===reverseRunes(tail))out.push(w);
+  }
+  return `Palindromi contrari: ${out.length}\n\n`+out.join('\n');
+}
+function groupByKey(words,label,keyFn,minGroup=2){
+  const g=new Map(),seen=new Map();
+  for(const w of words){ const clean=cleanWord(w,false); if(!clean)continue; const k=keyFn(w); if(!k)continue; if(!g.has(k)){g.set(k,[]);seen.set(k,new Set());} if(!seen.get(k).has(clean)){seen.get(k).add(clean);g.get(k).push(w);} }
+  const rows=[...g.entries()].filter(([,a])=>a.length>=minGroup).sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]));
+  return `${label}: ${rows.length} gruppi\n\n`+rows.map(([k,a])=>`${k.toUpperCase()}  →  ${a.join(' · ')}`).join('\n');
+}
+function suffixChars(sig,n){ const a=Array.from(sig); return a.slice(-Math.min(n,a.length)).join(''); }
+function findOxymoronCandidates(text){
+  const pairs=[
+    ['vivo','morto'],['vita','morte'],['caldo','freddo'],['luce','buio'],['chiaro','scuro'],['vero','falso'],['pieno','vuoto'],['grande','piccolo'],['alto','basso'],['forte','debole'],['ricco','povero'],['aperto','chiuso'],['vicino','lontano'],['vecchio','nuovo'],['pace','guerra'],['amore','odio'],['ordine','caos'],['presenza','assenza'],['sacro','profano'],['naturale','artificiale'],['silenzio','assordante'],['urlo','silenzioso'],['ghiaccio','bollente'],['fuoco','freddo'],['dolce','amaro'],['innocente','colpevole']
+  ];
+  const toks=tokenizeWords(text).map(w=>cleanWord(w,false)); const hits=[];
+  for(let i=0;i<toks.length;i++) for(let j=i+1;j<Math.min(toks.length,i+5);j++){
+    for(const [a,b] of pairs){ if((toks[i]===a&&toks[j]===b)||(toks[i]===b&&toks[j]===a)){ hits.push(toks.slice(i,j+1).join(' ')); break; } }
+  }
+  return `Ossimori / contrasti candidati: ${hits.length}\n\n`+[...new Set(hits)].join('\n');
+}
+
 function analyze(text,op,p,sensitive){
   const words=tokenizeWords(text), lines=normalizeLines(text);
   switch(op){
@@ -251,6 +346,27 @@ function analyze(text,op,p,sensitive){
     case 32:{const n=parsePositive(p,1,1,8);return groupWordSignatures(words,`Omovocaliche finali · ultime ${n} vocali`,w=>edgeSignature(vowelSkeleton(w),n,true));}
     case 33:{const n=parsePositive(p,1,1,8);return groupWordSignatures(words,`Omoconsonantiche iniziali · prime ${n} consonanti`,w=>edgeSignature(consonantSkeleton(w),n,false));}
     case 34:{const n=parsePositive(p,1,1,8);return groupWordSignatures(words,`Omoconsonantiche finali · ultime ${n} consonanti`,w=>edgeSignature(consonantSkeleton(w),n,true));}
+    case 35:{if(!words.length)return 'Nessuna parola.';const lens=words.map(wordLen).filter(Boolean);const avg=lens.reduce((a,b)=>a+b,0)/lens.length;return `Parole: ${lens.length}\nLunghezza media: ${avg.toFixed(2)} lettere`;}
+    case 36:{const m=new Map();for(const w of words){const n=wordLen(w);if(n)m.set(n,(m.get(n)||0)+1);}return [...m.entries()].sort((a,b)=>a[0]-b[0]).map(([n,c])=>`${n} lettere = ${c}`).join('\n');}
+    case 37:return filterWordsBy(words,p,sensitive,'start');
+    case 38:return filterWordsBy(words,p,sensitive,'end');
+    case 39:return filterWordsBy(words,p,sensitive,'contains');
+    case 40:{const n=parsePositive(p,3,1,100);const a=uniqueDisplayWords(words,sensitive).filter(w=>wordLen(w)===n);return `Parole di ${n} lettere: ${a.length}\n\n`+a.join('\n');}
+    case 41:return findRepeatedRuns(words);
+    case 42:return findRepeatedSequences(words,parsePositive(p,2,2,20));
+    case 43:{const a=uniqueDisplayWords(words,false).filter(isIsogram);return `Isogrammi: ${a.length}\n\n`+a.join('\n');}
+    case 44:{const a=uniqueDisplayWords(words,false).filter(w=>alphabeticWord(w,false));return `Parole alfabetiche: ${a.length}\n\n`+a.join('\n');}
+    case 45:{const a=uniqueDisplayWords(words,false).filter(w=>alphabeticWord(w,true));return `Parole alfabetiche inverse: ${a.length}\n\n`+a.join('\n');}
+    case 46:return uniqueDisplayWords(words,sensitive).join(' ');
+    case 47:return words.join('\n');
+    case 48:return text.toLocaleUpperCase('it');
+    case 49:return text.toLocaleLowerCase('it');
+    case 50:{const a=uniqueDisplayWords(words,true);return `Palindromo inverso · ${a.length} trasformazioni\n\n`+a.map(w=>`${w} → ${reverseWordDisplay(w)}`).join('\n');}
+    case 51:return findContraryPalindromes(words,parseMinLen(p));
+    case 52:return groupByKey(words,'Allitterazioni',w=>Array.from(cleanWord(w,false))[0]||'');
+    case 53:return groupByKey(words,'Assonanze',w=>suffixChars(vowelSkeleton(w),2));
+    case 54:return groupByKey(words,'Consonanze',w=>suffixChars(consonantSkeleton(w),2));
+    case 55:return findOxymoronCandidates(text);
     default:return 'Operazione non riconosciuta.';
   }
 }
