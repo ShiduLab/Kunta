@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -2099,6 +2100,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 }
 
 func main() {
+	runtime.LockOSThread()
 	hInst, _, _ := procGetModuleHandleW.Call(0)
 	cur, _, _ := procLoadCursorW.Call(0, 32512)
 	appIcon, _, _ = procLoadIconW.Call(hInst, 1)
