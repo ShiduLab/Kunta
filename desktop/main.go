@@ -3,13 +3,16 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"unicode"
+	"unicode/utf16"
 	"unsafe"
 )
 
@@ -1366,494 +1369,813 @@ func extractNumbers(s string) []string {
 	return out
 }
 
-// ---- Native Win32 GUI ----
+// ---- Native Win32 GUI v3: single EXE, async engine, no browser/server ----
 var (
-    user32   = syscall.NewLazyDLL("user32.dll")
-    kernel32 = syscall.NewLazyDLL("kernel32.dll")
-    comdlg32 = syscall.NewLazyDLL("comdlg32.dll")
-    gdi32    = syscall.NewLazyDLL("gdi32.dll")
+	user32   = syscall.NewLazyDLL("user32.dll")
+	kernel32 = syscall.NewLazyDLL("kernel32.dll")
+	comdlg32 = syscall.NewLazyDLL("comdlg32.dll")
+	gdi32    = syscall.NewLazyDLL("gdi32.dll")
+	uxtheme  = syscall.NewLazyDLL("uxtheme.dll")
+	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
+	shell32  = syscall.NewLazyDLL("shell32.dll")
 
-    procRegisterClassExW     = user32.NewProc("RegisterClassExW")
-    procCreateWindowExW      = user32.NewProc("CreateWindowExW")
-    procDefWindowProcW       = user32.NewProc("DefWindowProcW")
-    procGetMessageW          = user32.NewProc("GetMessageW")
-    procTranslateMessage     = user32.NewProc("TranslateMessage")
-    procDispatchMessageW     = user32.NewProc("DispatchMessageW")
-    procPostQuitMessage      = user32.NewProc("PostQuitMessage")
-    procMoveWindow           = user32.NewProc("MoveWindow")
-    procSendMessageW         = user32.NewProc("SendMessageW")
-    procSetWindowTextW       = user32.NewProc("SetWindowTextW")
-    procGetWindowTextLengthW = user32.NewProc("GetWindowTextLengthW")
-    procGetWindowTextW       = user32.NewProc("GetWindowTextW")
-    procGetClientRect        = user32.NewProc("GetClientRect")
-    procSetFocus             = user32.NewProc("SetFocus")
-    procMessageBoxW          = user32.NewProc("MessageBoxW")
-    procLoadCursorW          = user32.NewProc("LoadCursorW")
-    procLoadIconW            = user32.NewProc("LoadIconW")
-    procBeginPaint           = user32.NewProc("BeginPaint")
-    procEndPaint             = user32.NewProc("EndPaint")
-    procFillRect             = user32.NewProc("FillRect")
-    procFrameRect            = user32.NewProc("FrameRect")
-    procDrawTextW            = user32.NewProc("DrawTextW")
-    procInvalidateRect       = user32.NewProc("InvalidateRect")
+	procRegisterClassExW     = user32.NewProc("RegisterClassExW")
+	procCreateWindowExW      = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW       = user32.NewProc("DefWindowProcW")
+	procGetMessageW          = user32.NewProc("GetMessageW")
+	procTranslateMessage     = user32.NewProc("TranslateMessage")
+	procDispatchMessageW     = user32.NewProc("DispatchMessageW")
+	procPostQuitMessage      = user32.NewProc("PostQuitMessage")
+	procMoveWindow           = user32.NewProc("MoveWindow")
+	procSendMessageW         = user32.NewProc("SendMessageW")
+	procPostMessageW         = user32.NewProc("PostMessageW")
+	procSetWindowTextW       = user32.NewProc("SetWindowTextW")
+	procGetWindowTextLengthW = user32.NewProc("GetWindowTextLengthW")
+	procGetWindowTextW       = user32.NewProc("GetWindowTextW")
+	procGetClientRect        = user32.NewProc("GetClientRect")
+	procSetFocus             = user32.NewProc("SetFocus")
+	procMessageBoxW          = user32.NewProc("MessageBoxW")
+	procLoadCursorW          = user32.NewProc("LoadCursorW")
+	procLoadIconW            = user32.NewProc("LoadIconW")
+	procBeginPaint           = user32.NewProc("BeginPaint")
+	procEndPaint             = user32.NewProc("EndPaint")
+	procFillRect             = user32.NewProc("FillRect")
+	procFrameRect            = user32.NewProc("FrameRect")
+	procDrawTextW            = user32.NewProc("DrawTextW")
+	procDrawIconEx           = user32.NewProc("DrawIconEx")
+	procInvalidateRect       = user32.NewProc("InvalidateRect")
+	procEnableWindow         = user32.NewProc("EnableWindow")
+	procGetDpiForWindow      = user32.NewProc("GetDpiForWindow")
 
-    procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
-    procCreateFontW      = gdi32.NewProc("CreateFontW")
-    procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
-    procSetTextColor     = gdi32.NewProc("SetTextColor")
-    procSetBkColor       = gdi32.NewProc("SetBkColor")
-    procSetBkMode        = gdi32.NewProc("SetBkMode")
-    procGetOpenFileNameW = comdlg32.NewProc("GetOpenFileNameW")
+	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
+	procCreateFontW      = gdi32.NewProc("CreateFontW")
+	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
+	procCreatePen        = gdi32.NewProc("CreatePen")
+	procDeleteObject     = gdi32.NewProc("DeleteObject")
+	procSelectObject     = gdi32.NewProc("SelectObject")
+	procRoundRect        = gdi32.NewProc("RoundRect")
+	procSetTextColor     = gdi32.NewProc("SetTextColor")
+	procSetBkColor       = gdi32.NewProc("SetBkColor")
+	procSetBkMode        = gdi32.NewProc("SetBkMode")
+
+	procGetOpenFileNameW      = comdlg32.NewProc("GetOpenFileNameW")
+	procSetWindowTheme        = uxtheme.NewProc("SetWindowTheme")
+	procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
+	procDragAcceptFiles       = shell32.NewProc("DragAcceptFiles")
+	procDragQueryFileW        = shell32.NewProc("DragQueryFileW")
+	procDragFinish            = shell32.NewProc("DragFinish")
 )
 
 const (
-    WS_OVERLAPPEDWINDOW = 0x00CF0000
-    WS_VISIBLE          = 0x10000000
-    WS_CHILD            = 0x40000000
-    WS_TABSTOP          = 0x00010000
-    WS_VSCROLL          = 0x00200000
-    WS_HSCROLL          = 0x00100000
-    WS_BORDER           = 0x00800000
-    ES_MULTILINE        = 0x0004
-    ES_AUTOVSCROLL      = 0x0040
-    ES_AUTOHSCROLL      = 0x0080
-    ES_WANTRETURN       = 0x1000
-    ES_READONLY         = 0x0800
-    BS_OWNERDRAW        = 0x000B
-    BS_AUTOCHECKBOX     = 0x0003
-    CBS_DROPDOWNLIST    = 0x0003
-    SS_LEFT             = 0x0000
-    SS_CENTER           = 0x0001
+	WS_OVERLAPPEDWINDOW = 0x00CF0000
+	WS_VISIBLE          = 0x10000000
+	WS_CHILD            = 0x40000000
+	WS_TABSTOP          = 0x00010000
+	WS_VSCROLL          = 0x00200000
+	WS_HSCROLL          = 0x00100000
+	WS_BORDER           = 0x00800000
+	WS_CLIPCHILDREN     = 0x02000000
+	WS_EX_CLIENTEDGE    = 0x00000200
+	ES_MULTILINE        = 0x0004
+	ES_AUTOVSCROLL      = 0x0040
+	ES_AUTOHSCROLL      = 0x0080
+	ES_WANTRETURN       = 0x1000
+	ES_READONLY         = 0x0800
+	ES_NOHIDESEL        = 0x0100
+	BS_OWNERDRAW        = 0x000B
+	BS_AUTOCHECKBOX     = 0x0003
+	CBS_DROPDOWNLIST    = 0x0003
+	CBS_OWNERDRAWFIXED  = 0x0010
+	CBS_HASSTRINGS      = 0x0200
+	SS_LEFT             = 0x0000
 
-    WM_DESTROY       = 0x0002
-    WM_SIZE          = 0x0005
-    WM_PAINT         = 0x000F
-    WM_COMMAND       = 0x0111
-    WM_DRAWITEM      = 0x002B
-    WM_SETFONT       = 0x0030
-    WM_CTLCOLORMSGBOX = 0x0132
-    WM_CTLCOLOREDIT   = 0x0133
-    WM_CTLCOLORLISTBOX= 0x0134
-    WM_CTLCOLORBTN    = 0x0135
-    WM_CTLCOLORDLG    = 0x0136
-    WM_CTLCOLORSCROLLBAR = 0x0137
-    WM_CTLCOLORSTATIC = 0x0138
-    WM_PASTE         = 0x0302
-    WM_COPY          = 0x0301
-    EM_SETSEL        = 0x00B1
-    EM_SETMARGINS    = 0x00D3
-    EC_LEFTMARGIN    = 0x0001
-    EC_RIGHTMARGIN   = 0x0002
-    CB_ADDSTRING     = 0x0143
-    CB_SETCURSEL     = 0x014E
-    CB_GETCURSEL     = 0x0147
-    BM_GETCHECK      = 0x00F0
-    BST_CHECKED      = 1
-    SW_SHOW          = 5
-    CW_USEDEFAULT    = 0x80000000
+	WM_DESTROY           = 0x0002
+	WM_SIZE              = 0x0005
+	WM_PAINT             = 0x000F
+	WM_ERASEBKGND        = 0x0014
+	WM_GETMINMAXINFO     = 0x0024
+	WM_COMMAND           = 0x0111
+	WM_DRAWITEM          = 0x002B
+	WM_MEASUREITEM       = 0x002C
+	WM_SETFONT           = 0x0030
+	WM_CTLCOLORMSGBOX    = 0x0132
+	WM_CTLCOLOREDIT      = 0x0133
+	WM_CTLCOLORLISTBOX   = 0x0134
+	WM_CTLCOLORBTN       = 0x0135
+	WM_CTLCOLORDLG       = 0x0136
+	WM_CTLCOLORSCROLLBAR = 0x0137
+	WM_CTLCOLORSTATIC    = 0x0138
+	WM_DROPFILES         = 0x0233
+	WM_PASTE             = 0x0302
+	WM_COPY              = 0x0301
+	WM_APP_ANALYSIS_DONE = 0x8001
 
-    ODS_SELECTED = 0x0001
-    DT_CENTER = 0x0001
-    DT_VCENTER = 0x0004
-    DT_SINGLELINE = 0x0020
-    DT_END_ELLIPSIS = 0x8000
-    TRANSPARENT = 1
+	EM_SETSEL        = 0x00B1
+	EM_SETLIMITTEXT  = 0x00C5
+	EM_SETMARGINS    = 0x00D3
+	EC_LEFTMARGIN    = 0x0001
+	EC_RIGHTMARGIN   = 0x0002
+	CB_ADDSTRING     = 0x0143
+	CB_GETLBTEXT     = 0x0148
+	CB_GETLBTEXTLEN  = 0x0149
+	CB_GETCURSEL     = 0x0147
+	CB_SETCURSEL     = 0x014E
+	CB_SETITEMHEIGHT = 0x0153
+	BM_GETCHECK      = 0x00F0
+	BST_CHECKED      = 1
+	CW_USEDEFAULT    = 0x80000000
 
-    ID_TITLE            = 90
-    ID_TAGLINE          = 91
-    ID_EDIT_INPUT       = 101
-    ID_PASTE            = 102
-    ID_OPEN             = 103
-    ID_CLEAR            = 104
-    ID_QUICK_AZ         = 105
-    ID_QUICK_REP        = 106
-    ID_QUICK_KUNTA      = 107
-    ID_QUICK_VOW        = 108
-    ID_QUICK_CONS       = 109
-    ID_COMBO            = 110
-    ID_PARAM            = 111
-    ID_CASE             = 112
-    ID_RUN              = 113
-    ID_HINT             = 114
-    ID_OUTPUT           = 115
-    ID_COPY             = 116
-    ID_STATUS           = 117
-    ID_LABEL_OPERATION  = 118
-    ID_LABEL_PARAM      = 119
-    ID_FOOTER           = 120
+	ODT_BUTTON       = 4
+	ODT_COMBOBOX     = 3
+	ODS_SELECTED     = 0x0001
+	ODS_FOCUS        = 0x0010
+	ODS_COMBOBOXEDIT = 0x1000
+	DT_LEFT          = 0x0000
+	DT_CENTER        = 0x0001
+	DT_VCENTER       = 0x0004
+	DT_SINGLELINE    = 0x0020
+	DT_END_ELLIPSIS  = 0x8000
+	TRANSPARENT      = 1
+	PS_SOLID         = 0
+	DI_NORMAL        = 0x0003
+
+	ID_TITLE           = 90
+	ID_TAGLINE         = 91
+	ID_EDIT_INPUT      = 101
+	ID_PASTE           = 102
+	ID_OPEN            = 103
+	ID_CLEAR           = 104
+	ID_QUICK_AZ        = 105
+	ID_QUICK_REP       = 106
+	ID_QUICK_KUNTA     = 107
+	ID_QUICK_VOW       = 108
+	ID_QUICK_CONS      = 109
+	ID_COMBO           = 110
+	ID_PARAM           = 111
+	ID_CASE            = 112
+	ID_RUN             = 113
+	ID_HINT            = 114
+	ID_OUTPUT          = 115
+	ID_COPY            = 116
+	ID_STATUS          = 117
+	ID_LABEL_OPERATION = 118
+	ID_LABEL_PARAM     = 119
+	ID_FOOTER          = 120
 )
 
 type POINT struct{ X, Y int32 }
 type MSG struct {
-    Hwnd           uintptr
-    Message        uint32
-    WParam, LParam uintptr
-    Time           uint32
-    Pt             POINT
+	Hwnd           uintptr
+	Message        uint32
+	WParam, LParam uintptr
+	Time           uint32
+	Pt             POINT
 }
 type RECT struct{ Left, Top, Right, Bottom int32 }
 type WNDCLASSEX struct {
-    CbSize                                   uint32
-    Style                                    uint32
-    LpfnWndProc                              uintptr
-    CbClsExtra, CbWndExtra                   int32
-    HInstance, HIcon, HCursor, HbrBackground uintptr
-    LpszMenuName, LpszClassName              *uint16
-    HIconSm                                  uintptr
+	CbSize                                   uint32
+	Style                                    uint32
+	LpfnWndProc                              uintptr
+	CbClsExtra, CbWndExtra                   int32
+	HInstance, HIcon, HCursor, HbrBackground uintptr
+	LpszMenuName, LpszClassName              *uint16
+	HIconSm                                  uintptr
 }
 type OPENFILENAME struct {
-    LStructSize                        uint32
-    HwndOwner, HInstance               uintptr
-    LpstrFilter, LpstrCustomFilter     *uint16
-    NMaxCustFilter, NFilterIndex       uint32
-    LpstrFile                          *uint16
-    NMaxFile                           uint32
-    LpstrFileTitle                     *uint16
-    NMaxFileTitle                      uint32
-    LpstrInitialDir, LpstrTitle        *uint16
-    Flags, NFileOffset, NFileExtension uint32
-    LpstrDefExt                        *uint16
-    LCustData, LpfnHook                uintptr
-    LpTemplateName                     *uint16
-    PvReserved                         uintptr
-    DwReserved, FlagsEx                uint32
+	LStructSize                        uint32
+	HwndOwner, HInstance               uintptr
+	LpstrFilter, LpstrCustomFilter     *uint16
+	NMaxCustFilter, NFilterIndex       uint32
+	LpstrFile                          *uint16
+	NMaxFile                           uint32
+	LpstrFileTitle                     *uint16
+	NMaxFileTitle                      uint32
+	LpstrInitialDir, LpstrTitle        *uint16
+	Flags, NFileOffset, NFileExtension uint32
+	LpstrDefExt                        *uint16
+	LCustData, LpfnHook                uintptr
+	LpTemplateName                     *uint16
+	PvReserved                         uintptr
+	DwReserved, FlagsEx                uint32
 }
 type PAINTSTRUCT struct {
-    Hdc         uintptr
-    FErase      int32
-    RcPaint     RECT
-    FRestore    int32
-    FIncUpdate  int32
-    RgbReserved [32]byte
+	Hdc         uintptr
+	FErase      int32
+	RcPaint     RECT
+	FRestore    int32
+	FIncUpdate  int32
+	RgbReserved [32]byte
 }
 type DRAWITEMSTRUCT struct {
-    CtlType    uint32
-    CtlID      uint32
-    ItemID     uint32
-    ItemAction uint32
-    ItemState  uint32
-    HwndItem   uintptr
-    HDC        uintptr
-    RcItem     RECT
-    ItemData   uintptr
+	CtlType    uint32
+	CtlID      uint32
+	ItemID     uint32
+	ItemAction uint32
+	ItemState  uint32
+	HwndItem   uintptr
+	HDC        uintptr
+	RcItem     RECT
+	ItemData   uintptr
+}
+type MEASUREITEMSTRUCT struct {
+	CtlType, CtlID, ItemID, ItemWidth, ItemHeight uint32
+	ItemData                                      uintptr
+}
+type MINMAXINFO struct {
+	PtReserved, PtMaxSize, PtMaxPosition, PtMinTrackSize, PtMaxTrackSize POINT
 }
 
 func rgb(r, g, b byte) uintptr { return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16 }
 
 var (
-    hwndMain uintptr
-    hTitle, hTagline, hInput, hParam, hCombo, hCase, hHint, hOutput, hStatus, hFooter uintptr
-    controlsByID = map[int]uintptr{}
+	hwndMain                                                                          uintptr
+	hTitle, hTagline, hInput, hParam, hCombo, hCase, hHint, hOutput, hStatus, hFooter uintptr
+	appIcon                                                                           uintptr
+	controlsByID                                                                      = map[int]uintptr{}
+	panelStatics                                                                      = map[uintptr]bool{}
 
-    fontUI, fontSmall, fontTitle, fontMono, fontBold uintptr
-    brushBG, brushPanel, brushInput, brushAccent, brushSoft, brushLine uintptr
+	fontUI, fontSmall, fontTitle, fontMono, fontBold                   uintptr
+	brushBG, brushPanel, brushInput, brushAccent, brushSoft, brushLine uintptr
 
-    colBG     = rgb(16, 20, 15)
-    colPanel  = rgb(23, 28, 22)
-    colInput  = rgb(18, 24, 18)
-    colText   = rgb(238, 242, 235)
-    colMuted  = rgb(174, 184, 170)
-    colAccent = rgb(124, 186, 47)
-    colAccentInk = rgb(13, 22, 6)
-    colSoft   = rgb(32, 42, 29)
-    colLine   = rgb(57, 67, 55)
+	colBG        = rgb(16, 20, 15)
+	colPanel     = rgb(23, 28, 22)
+	colInput     = rgb(18, 24, 18)
+	colText      = rgb(238, 242, 235)
+	colMuted     = rgb(174, 184, 170)
+	colAccent    = rgb(124, 186, 47)
+	colAccentInk = rgb(13, 22, 6)
+	colSoft      = rgb(32, 42, 29)
+	colLine      = rgb(57, 67, 55)
+
+	controlPanel  RECT
+	currentDPI    = 96
+	busyMu        sync.Mutex
+	busy          bool
+	resultMu      sync.Mutex
+	pendingResult string
 )
 
 func u16(s string) *uint16 { p, _ := syscall.UTF16PtrFromString(s); return p }
 func textOf(h uintptr) string {
-    n, _, _ := procGetWindowTextLengthW.Call(h)
-    buf := make([]uint16, n+1)
-    procGetWindowTextW.Call(h, uintptr(unsafe.Pointer(&buf[0])), n+1)
-    return syscall.UTF16ToString(buf)
+	n, _, _ := procGetWindowTextLengthW.Call(h)
+	if n == 0 {
+		return ""
+	}
+	buf := make([]uint16, int(n)+1)
+	procGetWindowTextW.Call(h, uintptr(unsafe.Pointer(&buf[0])), n+1)
+	return syscall.UTF16ToString(buf)
 }
 func setText(h uintptr, s string) { procSetWindowTextW.Call(h, uintptr(unsafe.Pointer(u16(s)))) }
 func move(h uintptr, x, y, w, hh int) {
-    if h != 0 { procMoveWindow.Call(h, uintptr(x), uintptr(y), uintptr(w), uintptr(hh), 1) }
+	if h != 0 && w > 0 && hh > 0 {
+		procMoveWindow.Call(h, uintptr(x), uintptr(y), uintptr(w), uintptr(hh), 1)
+	}
 }
 func message(s string) {
-    procMessageBoxW.Call(hwndMain, uintptr(unsafe.Pointer(u16(s))), uintptr(unsafe.Pointer(u16("Kunta"))), 0x40)
+	procMessageBoxW.Call(hwndMain, uintptr(unsafe.Pointer(u16(s))), uintptr(unsafe.Pointer(u16("Kunta"))), 0x40)
+}
+func scale(v int) int { return v * currentDPI / 96 }
+func setDarkTheme(h uintptr) {
+	if h == 0 {
+		return
+	}
+	procSetWindowTheme.Call(h, uintptr(unsafe.Pointer(u16("DarkMode_Explorer"))), 0)
+}
+func setImmersiveDarkTitlebar(hwnd uintptr) {
+	on := int32(1)
+	// 20 is DWMWA_USE_IMMERSIVE_DARK_MODE on current Windows 10/11; 19 on older builds.
+	if r, _, _ := procDwmSetWindowAttribute.Call(hwnd, 20, uintptr(unsafe.Pointer(&on)), unsafe.Sizeof(on)); r != 0 {
+		procDwmSetWindowAttribute.Call(hwnd, 19, uintptr(unsafe.Pointer(&on)), unsafe.Sizeof(on))
+	}
 }
 func fontForID(id int) uintptr {
-    switch id {
-    case ID_TITLE:
-        return fontTitle
-    case ID_TAGLINE, ID_HINT, ID_STATUS, ID_LABEL_OPERATION, ID_LABEL_PARAM, ID_FOOTER:
-        return fontSmall
-    case ID_EDIT_INPUT, ID_OUTPUT:
-        return fontMono
-    case ID_RUN:
-        return fontBold
-    default:
-        return fontUI
-    }
+	switch id {
+	case ID_TITLE:
+		return fontTitle
+	case ID_TAGLINE, ID_HINT, ID_STATUS, ID_LABEL_OPERATION, ID_LABEL_PARAM, ID_FOOTER:
+		return fontSmall
+	case ID_EDIT_INPUT, ID_OUTPUT:
+		return fontMono
+	case ID_RUN:
+		return fontBold
+	default:
+		return fontUI
+	}
 }
 func create(class, text string, style, ex uint32, id int) uintptr {
-    r, _, _ := procCreateWindowExW.Call(uintptr(ex), uintptr(unsafe.Pointer(u16(class))), uintptr(unsafe.Pointer(u16(text))), uintptr(style), 0, 0, 10, 10, hwndMain, uintptr(id), 0, 0)
-    if r != 0 {
-        controlsByID[id] = r
-        f := fontForID(id)
-        if f != 0 { procSendMessageW.Call(r, WM_SETFONT, f, 1) }
-    }
-    return r
+	r, _, _ := procCreateWindowExW.Call(uintptr(ex), uintptr(unsafe.Pointer(u16(class))), uintptr(unsafe.Pointer(u16(text))), uintptr(style), 0, 0, 10, 10, hwndMain, uintptr(id), 0, 0)
+	if r != 0 {
+		controlsByID[id] = r
+		if f := fontForID(id); f != 0 {
+			procSendMessageW.Call(r, WM_SETFONT, f, 1)
+		}
+		setDarkTheme(r)
+	}
+	return r
 }
 func addButton(text string, id int) uintptr {
-    return create("BUTTON", text, WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 0, id)
+	return create("BUTTON", text, WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 0, id)
 }
-func addStatic(text string, id int) uintptr {
-    return create("STATIC", text, WS_CHILD|WS_VISIBLE|SS_LEFT, 0, id)
+func addStatic(text string, id int, panel bool) uintptr {
+	h := create("STATIC", text, WS_CHILD|WS_VISIBLE|SS_LEFT, 0, id)
+	if panel {
+		panelStatics[h] = true
+	}
+	return h
+}
+
+func decodeTextBytes(b []byte) string {
+	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
+		return string(b[3:])
+	}
+	if len(b) >= 2 && ((b[0] == 0xFF && b[1] == 0xFE) || (b[0] == 0xFE && b[1] == 0xFF)) {
+		le := b[0] == 0xFF
+		b = b[2:]
+		u := make([]uint16, 0, len(b)/2)
+		for i := 0; i+1 < len(b); i += 2 {
+			if le {
+				u = append(u, binary.LittleEndian.Uint16(b[i:i+2]))
+			} else {
+				u = append(u, binary.BigEndian.Uint16(b[i:i+2]))
+			}
+		}
+		return string(utf16.Decode(u))
+	}
+	return string(b)
+}
+func loadTextPath(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		message("Impossibile leggere il file.")
+		return
+	}
+	setText(hInput, decodeTextBytes(b))
+	setText(hStatus, fmt.Sprintf("Testo caricato · %.1f KB", float64(len(b))/1024.0))
+	procSetFocus.Call(hInput)
 }
 func openTextFile() {
-    buf := make([]uint16, 32768)
-    filter := syscall.StringToUTF16("Testi (*.txt;*.md;*.log;*.csv;*.tsv)\x00*.txt;*.md;*.log;*.csv;*.tsv\x00Tutti i file (*.*)\x00*.*\x00\x00")
-    ofn := OPENFILENAME{LStructSize: uint32(unsafe.Sizeof(OPENFILENAME{})), HwndOwner: hwndMain, LpstrFilter: &filter[0], LpstrFile: &buf[0], NMaxFile: uint32(len(buf)), Flags: 0x00001000 | 0x00000800 | 0x00000008}
-    r, _, _ := procGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
-    if r == 0 { return }
-    path := syscall.UTF16ToString(buf)
-    b, err := os.ReadFile(path)
-    if err != nil { message("Impossibile leggere il file."); return }
-    s := strings.TrimPrefix(string(b), "\ufeff")
-    setText(hInput, s)
-    setText(hStatus, "Testo caricato.")
+	buf := make([]uint16, 32768)
+	filter := syscall.StringToUTF16("Testi (*.txt;*.md;*.log;*.csv;*.tsv)\x00*.txt;*.md;*.log;*.csv;*.tsv\x00Tutti i file (*.*)\x00*.*\x00\x00")
+	ofn := OPENFILENAME{LStructSize: uint32(unsafe.Sizeof(OPENFILENAME{})), HwndOwner: hwndMain, LpstrFilter: &filter[0], LpstrFile: &buf[0], NMaxFile: uint32(len(buf)), Flags: 0x00001000 | 0x00000800 | 0x00000008}
+	r, _, _ := procGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
+	if r == 0 {
+		return
+	}
+	loadTextPath(syscall.UTF16ToString(buf))
+}
+func handleDrop(hDrop uintptr) {
+	n, _, _ := procDragQueryFileW.Call(hDrop, 0xFFFFFFFF, 0, 0)
+	if n > 0 {
+		ln, _, _ := procDragQueryFileW.Call(hDrop, 0, 0, 0)
+		buf := make([]uint16, int(ln)+1)
+		procDragQueryFileW.Call(hDrop, 0, uintptr(unsafe.Pointer(&buf[0])), ln+1)
+		loadTextPath(syscall.UTF16ToString(buf))
+	}
+	procDragFinish.Call(hDrop)
 }
 func updateHint() {
-    i, _, _ := procSendMessageW.Call(hCombo, CB_GETCURSEL, 0, 0)
-    if int(i) >= 0 && int(i) < len(operations) { setText(hHint, operations[int(i)].Hint) }
+	i, _, _ := procSendMessageW.Call(hCombo, CB_GETCURSEL, 0, 0)
+	if int(i) >= 0 && int(i) < len(operations) {
+		setText(hHint, operations[int(i)].Hint)
+	}
+}
+func setBusy(v bool) {
+	busyMu.Lock()
+	busy = v
+	busyMu.Unlock()
+	ids := []int{ID_RUN, ID_QUICK_AZ, ID_QUICK_REP, ID_QUICK_KUNTA, ID_QUICK_VOW, ID_QUICK_CONS}
+	enabled := uintptr(1)
+	if v {
+		enabled = 0
+	}
+	for _, id := range ids {
+		procEnableWindow.Call(controlsByID[id], enabled)
+	}
+	procEnableWindow.Call(hCombo, enabled)
+	if v {
+		setText(hStatus, "Kunta sta lavorando…")
+	} else {
+		setText(hStatus, "Locale · nessun invio esterno")
+	}
 }
 func runOp(op int) {
-    txt := textOf(hInput)
-    if txt == "" { setText(hOutput, "Non c’è testo da analizzare."); return }
-    checked, _, _ := procSendMessageW.Call(hCase, BM_GETCHECK, 0, 0)
-    setText(hOutput, analyze(txt, op, textOf(hParam), checked == BST_CHECKED))
-    setText(hStatus, "Locale · nessun invio esterno")
+	busyMu.Lock()
+	already := busy
+	busyMu.Unlock()
+	if already {
+		return
+	}
+	txt := textOf(hInput)
+	if txt == "" {
+		setText(hOutput, "Non c’è testo da analizzare.")
+		return
+	}
+	param := textOf(hParam)
+	checked, _, _ := procSendMessageW.Call(hCase, BM_GETCHECK, 0, 0)
+	sensitive := checked == BST_CHECKED
+	setBusy(true)
+	go func() {
+		res := analyze(txt, op, param, sensitive)
+		resultMu.Lock()
+		pendingResult = res
+		resultMu.Unlock()
+		procPostMessageW.Call(hwndMain, WM_APP_ANALYSIS_DONE, 0, 0)
+	}()
 }
+
 func layout() {
-    var r RECT
-    procGetClientRect.Call(hwndMain, uintptr(unsafe.Pointer(&r)))
-    w, h := int(r.Right-r.Left), int(r.Bottom-r.Top)
-    if w < 760 { w = 760 }
-    if h < 600 { h = 600 }
+	var r RECT
+	procGetClientRect.Call(hwndMain, uintptr(unsafe.Pointer(&r)))
+	w, h := int(r.Right-r.Left), int(r.Bottom-r.Top)
+	pad, gap := scale(14), scale(9)
+	if w < scale(820) {
+		w = scale(820)
+	}
+	if h < scale(680) {
+		h = scale(680)
+	}
 
-    pad, gap := 16, 9
-    y := 14
-    move(hTitle, pad, y, 260, 32)
-    move(hTagline, pad, y+31, 360, 22)
-    move(hFooter, w-190, y+5, 170, 32)
-    y += 64
+	y := scale(13)
+	iconW := scale(50)
+	move(hTitle, pad+iconW+scale(10), y+scale(2), scale(320), scale(31))
+	move(hTagline, pad+iconW+scale(10), y+scale(31), scale(440), scale(20))
+	y += scale(62)
 
-    btnH := 38
-    move(controlsByID[ID_PASTE], pad, y, 105, btnH)
-    move(controlsByID[ID_OPEN], pad+114, y, 130, btnH)
-    move(controlsByID[ID_CLEAR], pad+253, y, 105, btnH)
-    y += btnH + gap
+	btnH := scale(40)
+	move(controlsByID[ID_PASTE], pad, y, scale(105), btnH)
+	move(controlsByID[ID_OPEN], pad+scale(114), y, scale(138), btnH)
+	move(controlsByID[ID_CLEAR], pad+scale(261), y, scale(105), btnH)
+	y += btnH + gap
 
-    reservedBottom := 272
-    inputH := (h - y - reservedBottom) * 46 / 100
-    if inputH < 125 { inputH = 125 }
-    move(hInput, pad, y, w-2*pad, inputH)
-    y += inputH + gap
+	bottomReserve := scale(315)
+	inputH := (h - y - bottomReserve) * 46 / 100
+	if inputH < scale(135) {
+		inputH = scale(135)
+	}
+	move(hInput, pad, y, w-2*pad, inputH)
+	y += inputH + gap
 
-    quickW := (w - 2*pad - 4*gap) / 5
-    qs := []int{ID_QUICK_AZ, ID_QUICK_REP, ID_QUICK_KUNTA, ID_QUICK_VOW, ID_QUICK_CONS}
-    x := pad
-    for _, id := range qs { move(controlsByID[id], x, y, quickW, btnH); x += quickW + gap }
-    y += btnH + gap
+	quickW := (w - 2*pad - 4*gap) / 5
+	qs := []int{ID_QUICK_AZ, ID_QUICK_REP, ID_QUICK_KUNTA, ID_QUICK_VOW, ID_QUICK_CONS}
+	x := pad
+	for _, id := range qs {
+		move(controlsByID[id], x, y, quickW, btnH)
+		x += quickW + gap
+	}
+	y += btnH + gap
 
-    panelTop := y
-    labelH := 18
-    comboW := w*46/100
-    paramW := w*18/100
-    rightW := w - 2*pad - comboW - paramW - 3*gap
+	panelX, panelY := pad, y
+	panelW, panelH := w-2*pad, scale(112)
+	controlPanel = RECT{int32(panelX), int32(panelY), int32(panelX + panelW), int32(panelY + panelH)}
+	inner := scale(10)
+	labelH := scale(18)
+	comboW := panelW * 46 / 100
+	paramW := panelW * 18 / 100
+	rightX := panelX + comboW + paramW + 2*gap
+	rightW := panelX + panelW - inner - rightX
 
-    move(controlsByID[ID_LABEL_OPERATION], pad+10, y+7, comboW-20, labelH)
-    move(controlsByID[ID_LABEL_PARAM], pad+comboW+gap+10, y+7, paramW-20, labelH)
-    y += 28
-    move(hCombo, pad+10, y, comboW-20, 240)
-    move(hParam, pad+comboW+gap+10, y, paramW-20, 36)
-    move(hCase, pad+comboW+paramW+2*gap, y, rightW-112, 36)
-    move(controlsByID[ID_RUN], w-pad-108, y, 108, 36)
-    y += 41
-    move(hHint, pad+10, y, w-2*pad-20, 22)
-    y += 29
-    panelBottom := y
-    _ = panelTop
-    _ = panelBottom
+	move(controlsByID[ID_LABEL_OPERATION], panelX+inner, panelY+scale(8), comboW-inner*2, labelH)
+	move(controlsByID[ID_LABEL_PARAM], panelX+comboW+gap+inner, panelY+scale(8), paramW-inner*2, labelH)
+	fieldY := panelY + scale(31)
+	move(hCombo, panelX+inner, fieldY, comboW-inner*2, scale(36))
+	move(hParam, panelX+comboW+gap+inner, fieldY, paramW-inner*2, scale(36))
+	runW := scale(105)
+	caseW := rightW - runW - gap
+	if caseW < scale(190) {
+		caseW = scale(190)
+	}
+	move(hCase, rightX, fieldY, caseW, scale(36))
+	move(controlsByID[ID_RUN], panelX+panelW-inner-runW, fieldY, runW, scale(36))
+	move(hHint, panelX+inner, panelY+scale(75), panelW-inner*2, scale(25))
 
-    outH := h - y - 62
-    if outH < 110 { outH = 110 }
-    move(hOutput, pad, y, w-2*pad, outH)
-    y += outH + gap
-    move(controlsByID[ID_COPY], pad, y, 145, 36)
-    move(hStatus, pad+158, y+8, w-pad-158, 24)
+	y = panelY + panelH + gap
+	footerH := scale(45)
+	outH := h - y - footerH - pad
+	if outH < scale(125) {
+		outH = scale(125)
+	}
+	move(hOutput, pad, y, w-2*pad, outH)
+	y += outH + gap
+	move(controlsByID[ID_COPY], pad, y, scale(155), scale(36))
+	move(hStatus, pad+scale(169), y+scale(8), w-pad*2-scale(360), scale(24))
+	move(hFooter, w-pad-scale(170), y+scale(8), scale(170), scale(24))
+	procInvalidateRect.Call(hwndMain, 0, 0)
 }
+
 func buttonStyle(id uint32) (bg, fg uintptr) {
-    switch id {
-    case ID_RUN:
-        return colAccent, colAccentInk
-    case ID_QUICK_AZ, ID_QUICK_REP, ID_QUICK_KUNTA, ID_QUICK_VOW, ID_QUICK_CONS:
-        return colSoft, colText
-    default:
-        return colPanel, colText
-    }
+	switch id {
+	case ID_RUN:
+		return colAccent, colAccentInk
+	case ID_QUICK_AZ, ID_QUICK_REP, ID_QUICK_KUNTA, ID_QUICK_VOW, ID_QUICK_CONS:
+		return colSoft, colText
+	default:
+		return colPanel, colText
+	}
+}
+func drawRoundedBox(hdc uintptr, rc RECT, bg, border uintptr, radius int) {
+	b, _, _ := procCreateSolidBrush.Call(bg)
+	p, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
+	oldB, _, _ := procSelectObject.Call(hdc, b)
+	oldP, _, _ := procSelectObject.Call(hdc, p)
+	procRoundRect.Call(hdc, uintptr(rc.Left), uintptr(rc.Top), uintptr(rc.Right), uintptr(rc.Bottom), uintptr(radius), uintptr(radius))
+	procSelectObject.Call(hdc, oldB)
+	procSelectObject.Call(hdc, oldP)
+	procDeleteObject.Call(b)
+	procDeleteObject.Call(p)
 }
 func drawOwnerButton(di *DRAWITEMSTRUCT) {
-    bg, fg := buttonStyle(di.CtlID)
-    if di.ItemState&ODS_SELECTED != 0 {
-        if di.CtlID == ID_RUN { bg = rgb(103, 160, 37) } else { bg = rgb(43, 53, 40) }
-    }
-    b, _, _ := procCreateSolidBrush.Call(bg)
-    procFillRect.Call(di.HDC, uintptr(unsafe.Pointer(&di.RcItem)), b)
-    procFrameRect.Call(di.HDC, uintptr(unsafe.Pointer(&di.RcItem)), brushLine)
-    procSetBkMode.Call(di.HDC, TRANSPARENT)
-    procSetTextColor.Call(di.HDC, fg)
-    txt := textOf(di.HwndItem)
-    rr := di.RcItem
-    procDrawTextW.Call(di.HDC, uintptr(unsafe.Pointer(u16(txt))), ^uintptr(0), uintptr(unsafe.Pointer(&rr)), DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	bg, fg := buttonStyle(di.CtlID)
+	if di.ItemState&ODS_SELECTED != 0 {
+		if di.CtlID == ID_RUN {
+			bg = rgb(103, 160, 37)
+		} else {
+			bg = rgb(43, 53, 40)
+		}
+	}
+	drawRoundedBox(di.HDC, di.RcItem, bg, colLine, scale(7))
+	procSetBkMode.Call(di.HDC, TRANSPARENT)
+	procSetTextColor.Call(di.HDC, fg)
+	txt := textOf(di.HwndItem)
+	rr := di.RcItem
+	procDrawTextW.Call(di.HDC, uintptr(unsafe.Pointer(u16(txt))), ^uintptr(0), uintptr(unsafe.Pointer(&rr)), DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+}
+func comboItemText(hwnd uintptr, itemID uint32) string {
+	if itemID == 0xFFFFFFFF {
+		i, _, _ := procSendMessageW.Call(hwnd, CB_GETCURSEL, 0, 0)
+		if int(i) < 0 {
+			return ""
+		}
+		itemID = uint32(i)
+	}
+	ln, _, _ := procSendMessageW.Call(hwnd, CB_GETLBTEXTLEN, uintptr(itemID), 0)
+	if int32(ln) < 0 {
+		return ""
+	}
+	buf := make([]uint16, int(ln)+1)
+	procSendMessageW.Call(hwnd, CB_GETLBTEXT, uintptr(itemID), uintptr(unsafe.Pointer(&buf[0])))
+	return syscall.UTF16ToString(buf)
+}
+func drawOwnerCombo(di *DRAWITEMSTRUCT) {
+	bg := colPanel
+	if di.ItemState&ODS_SELECTED != 0 {
+		bg = colSoft
+	}
+	b, _, _ := procCreateSolidBrush.Call(bg)
+	procFillRect.Call(di.HDC, uintptr(unsafe.Pointer(&di.RcItem)), b)
+	procDeleteObject.Call(b)
+	procSetBkMode.Call(di.HDC, TRANSPARENT)
+	procSetTextColor.Call(di.HDC, colText)
+	rr := di.RcItem
+	rr.Left += int32(scale(9))
+	rr.Right -= int32(scale(6))
+	txt := comboItemText(di.HwndItem, di.ItemID)
+	procDrawTextW.Call(di.HDC, uintptr(unsafe.Pointer(u16(txt))), ^uintptr(0), uintptr(unsafe.Pointer(&rr)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 }
 func paintBackground(hwnd uintptr) {
-    var ps PAINTSTRUCT
-    hdc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
-    if hdc != 0 {
-        var r RECT
-        procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
-        procFillRect.Call(hdc, uintptr(unsafe.Pointer(&r)), brushBG)
-    }
-    procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+	var ps PAINTSTRUCT
+	hdc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+	if hdc != 0 {
+		var r RECT
+		procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+		procFillRect.Call(hdc, uintptr(unsafe.Pointer(&r)), brushBG)
+		if controlPanel.Right > controlPanel.Left {
+			drawRoundedBox(hdc, controlPanel, colPanel, colLine, scale(9))
+		}
+		if appIcon != 0 {
+			procDrawIconEx.Call(hdc, uintptr(scale(14)), uintptr(scale(14)), appIcon, uintptr(scale(48)), uintptr(scale(48)), 0, 0, DI_NORMAL)
+		}
+	}
+	procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 }
+func applyDPI(hwnd uintptr) {
+	if dpi, _, _ := procGetDpiForWindow.Call(hwnd); dpi >= 72 && dpi <= 384 {
+		currentDPI = int(dpi)
+	}
+}
+func setControlFonts() {
+	h := func(px int, weight int, face string) uintptr {
+		height := -scale(px)
+		r, _, _ := procCreateFontW.Call(uintptr(int64(height)), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16(face))))
+		return r
+	}
+	fontUI = h(17, 400, "Segoe UI")
+	fontSmall = h(14, 400, "Segoe UI")
+	fontTitle = h(27, 600, "Segoe UI")
+	fontMono = h(15, 400, "Consolas")
+	fontBold = h(17, 700, "Segoe UI")
+}
+
 func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
-    switch msg {
-    case WM_DESTROY:
-        procPostQuitMessage.Call(0); return 0
-    case WM_SIZE:
-        layout(); return 0
-    case WM_PAINT:
-        paintBackground(hwnd); return 0
-    case WM_DRAWITEM:
-        if lParam != 0 {
-            di := (*DRAWITEMSTRUCT)(unsafe.Pointer(lParam))
-            drawOwnerButton(di)
-            return 1
-        }
-    case WM_CTLCOLOREDIT:
-        hdc := wParam
-        procSetTextColor.Call(hdc, colText)
-        procSetBkColor.Call(hdc, colInput)
-        return brushInput
-    case WM_CTLCOLORLISTBOX:
-        hdc := wParam
-        procSetTextColor.Call(hdc, colText)
-        procSetBkColor.Call(hdc, colPanel)
-        return brushPanel
-    case WM_CTLCOLORSTATIC:
-        hdc := wParam
-        procSetBkMode.Call(hdc, TRANSPARENT)
-        ctl := lParam
-        if ctl == hTitle { procSetTextColor.Call(hdc, colText) } else { procSetTextColor.Call(hdc, colMuted) }
-        return brushBG
-    case WM_CTLCOLORBTN:
-        hdc := wParam
-        procSetTextColor.Call(hdc, colText)
-        procSetBkColor.Call(hdc, colBG)
-        return brushBG
-    case WM_COMMAND:
-        id := int(wParam & 0xffff)
-        code := int((wParam >> 16) & 0xffff)
-        switch id {
-        case ID_PASTE:
-            procSetFocus.Call(hInput); procSendMessageW.Call(hInput, WM_PASTE, 0, 0)
-        case ID_OPEN:
-            openTextFile()
-        case ID_CLEAR:
-            setText(hInput, ""); setText(hOutput, ""); setText(hParam, ""); procSetFocus.Call(hInput)
-        case ID_QUICK_AZ:
-            procSendMessageW.Call(hCombo, CB_SETCURSEL, 20, 0); updateHint(); runOp(20)
-        case ID_QUICK_REP:
-            procSendMessageW.Call(hCombo, CB_SETCURSEL, 9, 0); updateHint(); runOp(9)
-        case ID_QUICK_KUNTA:
-            procSendMessageW.Call(hCombo, CB_SETCURSEL, 26, 0); updateHint(); runOp(26)
-        case ID_QUICK_VOW:
-            procSendMessageW.Call(hCombo, CB_SETCURSEL, 27, 0); updateHint(); runOp(27)
-        case ID_QUICK_CONS:
-            procSendMessageW.Call(hCombo, CB_SETCURSEL, 28, 0); updateHint(); runOp(28)
-        case ID_COMBO:
-            if code == 1 { updateHint() }
-        case ID_RUN:
-            i, _, _ := procSendMessageW.Call(hCombo, CB_GETCURSEL, 0, 0); runOp(int(i))
-        case ID_COPY:
-            procSendMessageW.Call(hOutput, EM_SETSEL, 0, ^uintptr(0)); procSendMessageW.Call(hOutput, WM_COPY, 0, 0); setText(hStatus, "Risultato copiato.")
-        }
-        return 0
-    }
-    r, _, _ := procDefWindowProcW.Call(hwnd, uintptr(msg), wParam, lParam)
-    return r
+	switch msg {
+	case WM_DESTROY:
+		procPostQuitMessage.Call(0)
+		return 0
+	case WM_ERASEBKGND:
+		return 1
+	case WM_GETMINMAXINFO:
+		if lParam != 0 {
+			m := (*MINMAXINFO)(unsafe.Pointer(lParam))
+			m.PtMinTrackSize.X = int32(scale(820))
+			m.PtMinTrackSize.Y = int32(scale(680))
+			return 0
+		}
+	case WM_SIZE:
+		layout()
+		return 0
+	case WM_PAINT:
+		paintBackground(hwnd)
+		return 0
+	case WM_DROPFILES:
+		handleDrop(wParam)
+		return 0
+	case WM_MEASUREITEM:
+		if lParam != 0 {
+			mi := (*MEASUREITEMSTRUCT)(unsafe.Pointer(lParam))
+			if mi.CtlType == ODT_COMBOBOX {
+				mi.ItemHeight = uint32(scale(30))
+				return 1
+			}
+		}
+	case WM_DRAWITEM:
+		if lParam != 0 {
+			di := (*DRAWITEMSTRUCT)(unsafe.Pointer(lParam))
+			if di.CtlType == ODT_BUTTON {
+				drawOwnerButton(di)
+				return 1
+			}
+			if di.CtlType == ODT_COMBOBOX {
+				drawOwnerCombo(di)
+				return 1
+			}
+		}
+	case WM_CTLCOLOREDIT:
+		hdc := wParam
+		procSetTextColor.Call(hdc, colText)
+		procSetBkColor.Call(hdc, colInput)
+		return brushInput
+	case WM_CTLCOLORLISTBOX:
+		hdc := wParam
+		procSetTextColor.Call(hdc, colText)
+		procSetBkColor.Call(hdc, colPanel)
+		return brushPanel
+	case WM_CTLCOLORSTATIC:
+		hdc := wParam
+		ctl := lParam
+		procSetBkMode.Call(hdc, TRANSPARENT)
+		if ctl == hTitle {
+			procSetTextColor.Call(hdc, colText)
+		} else {
+			procSetTextColor.Call(hdc, colMuted)
+		}
+		if panelStatics[ctl] {
+			return brushPanel
+		}
+		return brushBG
+	case WM_CTLCOLORBTN:
+		hdc := wParam
+		procSetTextColor.Call(hdc, colText)
+		procSetBkColor.Call(hdc, colPanel)
+		return brushPanel
+	case WM_APP_ANALYSIS_DONE:
+		resultMu.Lock()
+		res := pendingResult
+		pendingResult = ""
+		resultMu.Unlock()
+		setText(hOutput, res)
+		procSendMessageW.Call(hOutput, EM_SETSEL, 0, 0)
+		setBusy(false)
+		return 0
+	case WM_COMMAND:
+		id := int(wParam & 0xffff)
+		code := int((wParam >> 16) & 0xffff)
+		switch id {
+		case ID_PASTE:
+			procSetFocus.Call(hInput)
+			procSendMessageW.Call(hInput, WM_PASTE, 0, 0)
+		case ID_OPEN:
+			openTextFile()
+		case ID_CLEAR:
+			setText(hInput, "")
+			setText(hOutput, "")
+			setText(hParam, "")
+			setText(hStatus, "Locale · nessun invio esterno")
+			procSetFocus.Call(hInput)
+		case ID_QUICK_AZ:
+			procSendMessageW.Call(hCombo, CB_SETCURSEL, 20, 0)
+			updateHint()
+			runOp(20)
+		case ID_QUICK_REP:
+			procSendMessageW.Call(hCombo, CB_SETCURSEL, 9, 0)
+			updateHint()
+			runOp(9)
+		case ID_QUICK_KUNTA:
+			procSendMessageW.Call(hCombo, CB_SETCURSEL, 26, 0)
+			updateHint()
+			runOp(26)
+		case ID_QUICK_VOW:
+			procSendMessageW.Call(hCombo, CB_SETCURSEL, 27, 0)
+			updateHint()
+			runOp(27)
+		case ID_QUICK_CONS:
+			procSendMessageW.Call(hCombo, CB_SETCURSEL, 28, 0)
+			updateHint()
+			runOp(28)
+		case ID_COMBO:
+			if code == 1 {
+				updateHint()
+			}
+		case ID_RUN:
+			i, _, _ := procSendMessageW.Call(hCombo, CB_GETCURSEL, 0, 0)
+			runOp(int(i))
+		case ID_COPY:
+			procSendMessageW.Call(hOutput, EM_SETSEL, 0, ^uintptr(0))
+			procSendMessageW.Call(hOutput, WM_COPY, 0, 0)
+			setText(hStatus, "Risultato copiato.")
+		}
+		return 0
+	}
+	r, _, _ := procDefWindowProcW.Call(hwnd, uintptr(msg), wParam, lParam)
+	return r
 }
+
 func main() {
-    hInst, _, _ := procGetModuleHandleW.Call(0)
-    cur, _, _ := procLoadCursorW.Call(0, 32512)
-    appIcon, _, _ := procLoadIconW.Call(hInst, 1)
+	hInst, _, _ := procGetModuleHandleW.Call(0)
+	cur, _, _ := procLoadCursorW.Call(0, 32512)
+	appIcon, _, _ = procLoadIconW.Call(hInst, 1)
 
-    brushBG, _, _ = procCreateSolidBrush.Call(colBG)
-    brushPanel, _, _ = procCreateSolidBrush.Call(colPanel)
-    brushInput, _, _ = procCreateSolidBrush.Call(colInput)
-    brushAccent, _, _ = procCreateSolidBrush.Call(colAccent)
-    brushSoft, _, _ = procCreateSolidBrush.Call(colSoft)
-    brushLine, _, _ = procCreateSolidBrush.Call(colLine)
+	brushBG, _, _ = procCreateSolidBrush.Call(colBG)
+	brushPanel, _, _ = procCreateSolidBrush.Call(colPanel)
+	brushInput, _, _ = procCreateSolidBrush.Call(colInput)
+	brushAccent, _, _ = procCreateSolidBrush.Call(colAccent)
+	brushSoft, _, _ = procCreateSolidBrush.Call(colSoft)
+	brushLine, _, _ = procCreateSolidBrush.Call(colLine)
 
-    fontUI, _, _ = procCreateFontW.Call(^uintptr(17), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI"))))
-    fontSmall, _, _ = procCreateFontW.Call(^uintptr(14), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI"))))
-    fontTitle, _, _ = procCreateFontW.Call(^uintptr(28), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI"))))
-    fontMono, _, _ = procCreateFontW.Call(^uintptr(15), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Consolas"))))
-    fontBold, _, _ = procCreateFontW.Call(^uintptr(17), 0, 0, 0, 700, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI"))))
+	class := u16("KuntaNativeWindowV3")
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hInst, HIcon: appIcon, HCursor: cur, HbrBackground: brushBG, LpszClassName: class, HIconSm: appIcon}
+	if r, _, _ := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
+		return
+	}
 
-    class := u16("KuntaNativeWindow")
-    wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hInst, HIcon: appIcon, HCursor: cur, HbrBackground: brushBG, LpszClassName: class, HIconSm: appIcon}
-    if r, _, _ := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 { return }
+	hwndMain, _, _ = procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(u16("Kunta"))), WS_OVERLAPPEDWINDOW|WS_VISIBLE|WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1120, 860, 0, 0, hInst, 0)
+	if hwndMain == 0 {
+		return
+	}
+	applyDPI(hwndMain)
+	setImmersiveDarkTitlebar(hwndMain)
+	setControlFonts()
+	procDragAcceptFiles.Call(hwndMain, 1)
 
-    hwndMain, _, _ = procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(u16("Kunta"))), WS_OVERLAPPEDWINDOW|WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1100, 820, 0, 0, hInst, 0)
-    if hwndMain == 0 { return }
+	hTitle = addStatic("Kunta", ID_TITLE, false)
+	hTagline = addStatic("Conta · osserva · ordina · rac-conta", ID_TAGLINE, false)
 
-    hTitle = addStatic("Kunta", ID_TITLE)
-    hTagline = addStatic("Conta · osserva · ordina · rac-conta", ID_TAGLINE)
-    hFooter = addStatic("ShiduLab", ID_FOOTER)
+	addButton("Incolla", ID_PASTE)
+	addButton("Apri testo…", ID_OPEN)
+	addButton("Pulisci", ID_CLEAR)
 
-    addButton("Incolla", ID_PASTE)
-    addButton("Apri testo…", ID_OPEN)
-    addButton("Pulisci", ID_CLEAR)
+	hInput = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_WANTRETURN|ES_NOHIDESEL, WS_EX_CLIENTEDGE, ID_EDIT_INPUT)
+	procSendMessageW.Call(hInput, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(scale(10)|(scale(10)<<16)))
+	procSendMessageW.Call(hInput, EM_SETLIMITTEXT, 0x7FFFFFFE, 0)
 
-    hInput = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_WANTRETURN, 0, ID_EDIT_INPUT)
-    procSendMessageW.Call(hInput, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(10|(10<<16)))
+	addButton("A–Z", ID_QUICK_AZ)
+	addButton("Ripetizioni", ID_QUICK_REP)
+	addButton("Kunta il testo", ID_QUICK_KUNTA)
+	addButton("Isovocaliche", ID_QUICK_VOW)
+	addButton("Isoconsonantiche", ID_QUICK_CONS)
 
-    addButton("A–Z", ID_QUICK_AZ)
-    addButton("Ripetizioni", ID_QUICK_REP)
-    addButton("Kunta il testo", ID_QUICK_KUNTA)
-    addButton("Isovocaliche", ID_QUICK_VOW)
-    addButton("Isoconsonantiche", ID_QUICK_CONS)
+	addStatic("Operazione", ID_LABEL_OPERATION, true)
+	addStatic("Parametro", ID_LABEL_PARAM, true)
+	hCombo = create("COMBOBOX", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS, 0, ID_COMBO)
+	for _, op := range operations {
+		procSendMessageW.Call(hCombo, CB_ADDSTRING, 0, uintptr(unsafe.Pointer(u16(op.Name))))
+	}
+	procSendMessageW.Call(hCombo, CB_SETCURSEL, 20, 0)
+	procSendMessageW.Call(hCombo, CB_SETITEMHEIGHT, ^uintptr(0), uintptr(scale(30)))
 
-    create("STATIC", "Operazione", WS_CHILD|WS_VISIBLE|SS_LEFT, 0, ID_LABEL_OPERATION)
-    create("STATIC", "Parametro", WS_CHILD|WS_VISIBLE|SS_LEFT, 0, ID_LABEL_PARAM)
-    hCombo = create("COMBOBOX", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|CBS_DROPDOWNLIST, 0, ID_COMBO)
-    for _, op := range operations { procSendMessageW.Call(hCombo, CB_ADDSTRING, 0, uintptr(unsafe.Pointer(u16(op.Name)))) }
-    procSendMessageW.Call(hCombo, CB_SETCURSEL, 20, 0)
+	hParam = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, ID_PARAM)
+	procSendMessageW.Call(hParam, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(scale(8)|(scale(8)<<16)))
+	hCase = create("BUTTON", "Maiuscole/minuscole distinte", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX, 0, ID_CASE)
+	addButton("KUNTA!", ID_RUN)
+	hHint = addStatic("", ID_HINT, true)
+	updateHint()
 
-    hParam = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER|ES_AUTOHSCROLL, 0, ID_PARAM)
-    procSendMessageW.Call(hParam, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(8|(8<<16)))
-    hCase = create("BUTTON", "Maiuscole/minuscole distinte", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX, 0, ID_CASE)
-    addButton("KUNTA!", ID_RUN)
-    hHint = addStatic("", ID_HINT)
-    updateHint()
+	hOutput = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_WANTRETURN|ES_READONLY|ES_NOHIDESEL, WS_EX_CLIENTEDGE, ID_OUTPUT)
+	procSendMessageW.Call(hOutput, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(scale(10)|(scale(10)<<16)))
+	procSendMessageW.Call(hOutput, EM_SETLIMITTEXT, 0x7FFFFFFE, 0)
+	addButton("Copia risultato", ID_COPY)
+	hStatus = addStatic("Locale · nessun invio esterno", ID_STATUS, false)
+	hFooter = addStatic("ShiduLab", ID_FOOTER, false)
 
-    hOutput = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_WANTRETURN|ES_READONLY, 0, ID_OUTPUT)
-    procSendMessageW.Call(hOutput, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(10|(10<<16)))
-    addButton("Copia risultato", ID_COPY)
-    hStatus = addStatic("Locale · nessun invio esterno", ID_STATUS)
+	layout()
+	procInvalidateRect.Call(hwndMain, 0, 1)
+	procSetFocus.Call(hInput)
 
-    layout()
-    procInvalidateRect.Call(hwndMain, 0, 1)
-
-    var msg MSG
-    for {
-        r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
-        if int32(r) <= 0 { break }
-        procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
-        procDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
-    }
+	var msg MSG
+	for {
+		r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		if int32(r) <= 0 {
+			break
+		}
+		procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
+		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
+	}
 }
