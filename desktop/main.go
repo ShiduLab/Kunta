@@ -282,6 +282,20 @@ func baseAnagramRune(r rune) rune {
 	return 0
 }
 
+func anagramIdentity(word string) string {
+	var b strings.Builder
+	for _, r := range word {
+		if unicode.IsNumber(r) {
+			return ""
+		}
+		n := baseAnagramRune(r)
+		if n != 0 {
+			b.WriteRune(n)
+		}
+	}
+	return b.String()
+}
+
 func anagramSignatureKey(word string) (string, int) {
 	var counts [26]byte
 	letters := 0
@@ -392,12 +406,12 @@ func findAnagrams(words []string, sensitive bool, minLen int) string {
 			continue
 		}
 
-		sourceNorm := strings.ToLower(cleanWord(display[k], false))
+		sourceNorm := anagramIdentity(display[k])
 		seen := map[string]bool{}
 		filtered := []string{}
 		for _, candidate := range candidates {
-			cn := strings.ToLower(cleanWord(candidate, false))
-			if cn == sourceNorm || seen[cn] {
+			cn := anagramIdentity(candidate)
+			if cn == "" || cn == sourceNorm || seen[cn] {
 				continue
 			}
 			seen[cn] = true
