@@ -10,13 +10,17 @@ android {
         applicationId 'io.github.shidulab.kunta'
         minSdk 23
         targetSdk 35
-        versionCode 3
-        versionName '1.1.1'
+        versionCode 4
+        versionName '1.1.2'
+        multiDexEnabled true
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
 
+dependencies {
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
 }
