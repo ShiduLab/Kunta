@@ -6,8 +6,8 @@ import (
 )
 
 func TestOperationsComplete(t *testing.T) {
-	if len(operations) != 56 {
-		t.Fatalf("operazioni = %d, voglio 56", len(operations))
+	if len(operations) != 58 {
+		t.Fatalf("operazioni = %d, voglio 58 con Palindromo inverso, Palindromo contrario, Inversi e Antipodi distinti", len(operations))
 	}
 }
 
@@ -15,12 +15,12 @@ func TestAllOperationsProduceOutput(t *testing.T) {
 	sample := `Chi mi ama mi chiama, chi mi odia mi insegua.
 AMA radar anna otto.
 luce buio amore odio vivo morto.
-Rima cima prima tremA.
+Rima Amir ACETONE ENOTECA POSSESSO cima prima tremA.
 organo onagro citerei eretici cotenna canneto.
 Energia esistenza efficace nell'amare devastante.
 alpha beta beta gamma gamma gamma.
 123 456 123.`
-	params := map[int]string{0: "aeiou", 7: "ama", 13: "3", 14: "3", 15: "3", 22: "3", 23: "3", 24: "3", 25: "2", 31: "1", 32: "1", 33: "1", 34: "1", 37: "a", 38: "a", 39: "am", 40: "3", 42: "2", 50: "3", 51: "3"}
+	params := map[int]string{0: "aeiou", 7: "ama", 13: "3", 14: "3", 15: "3", 22: "3", 23: "3", 24: "3", 25: "2", 31: "1", 32: "1", 33: "1", 34: "1", 37: "a", 38: "a", 39: "am", 40: "3", 42: "2", 50: "3", 51: "3", 52: "3", 53: "3"}
 	for i := range operations {
 		got := analyze(sample, i, params[i], false)
 		if strings.TrimSpace(got) == "" {
@@ -81,7 +81,7 @@ func TestBifronteOnlyIfCounterpartExists(t *testing.T) {
 }
 
 func TestInverseOnlyIfCounterpartExists(t *testing.T) {
-	got := analyze("citerei eretici chi mi ama", 50, "3", false)
+	got := analyze("citerei eretici chi mi ama", 52, "3", false)
 	low := strings.ToLower(got)
 	if !strings.Contains(low, "citerei") || !strings.Contains(low, "eretici") {
 		t.Fatalf("inverso reale non rilevato:\n%s", got)
@@ -94,7 +94,7 @@ func TestInverseOnlyIfCounterpartExists(t *testing.T) {
 }
 
 func TestAntipodeOnlyIfCounterpartExists(t *testing.T) {
-	got := analyze("cotenna canneto chi mi ama", 51, "3", false)
+	got := analyze("cotenna canneto chi mi ama", 53, "3", false)
 	low := strings.ToLower(got)
 	if !strings.Contains(low, "cotenna") || !strings.Contains(low, "canneto") {
 		t.Fatalf("antipodo reale non rilevato:\n%s", got)
@@ -110,6 +110,37 @@ func TestColumnOutputs(t *testing.T) {
 		got := analyze(sample, op, "3", false)
 		if !strings.Contains(got, "\n") {
 			t.Fatalf("operazione %d %q: output non verticale: %q", op, operations[op].Name, got)
+		}
+	}
+}
+
+func TestPalindromoInversoOnlyIfCounterpartExists(t *testing.T) {
+	got := analyze("Rima Amir ACETONE ENOTECA chi mi ama", 50, "3", false)
+	low := strings.ToLower(got)
+	for _, want := range []string{"rima", "amir", "acetone", "enoteca"} {
+		if !strings.Contains(low, want) {
+			t.Fatalf("palindromo inverso reale %q non rilevato:\n%s", want, got)
+		}
+	}
+	for _, fakeLine := range []string{"chi ↔ ihc", "mi ↔ im", "ama ↔ ama"} {
+		if strings.Contains(low, fakeLine) {
+			t.Fatalf("trasformazione inventata %q presente:\n%s", fakeLine, got)
+		}
+	}
+}
+
+func TestPalindromoContrarioRestored(t *testing.T) {
+	got := analyze("POSSESSO parola casa", 51, "3", false)
+	if !strings.Contains(strings.ToLower(got), "possesso") {
+		t.Fatalf("Palindromo contrario POSSESSO non rilevato:\n%s", got)
+	}
+}
+
+func TestFourDistinctEnigmaticOperations(t *testing.T) {
+	want := []string{"Palindromo inverso", "Palindromo contrario", "Inversi", "Antipodi"}
+	for i, name := range want {
+		if operations[50+i].Name != name {
+			t.Fatalf("operazione %d = %q, voglio %q", 50+i, operations[50+i].Name, name)
 		}
 	}
 }
