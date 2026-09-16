@@ -331,19 +331,46 @@ func dictionaryAnagrams(signatures map[string]bool) (map[string][]string, error)
 	return found, nil
 }
 
+func anagramLexeme(raw string) string {
+	w := cleanWord(raw, true)
+	// Per gli anagrammi analizziamo la parola lessicale, non l'elisione che la precede:
+	// L'Empatia -> Empatia, nell'amare -> amare, un'altra -> altra.
+	last := -1
+	sepLen := 0
+	if i := strings.LastIndex(w, "'"); i > last {
+		last, sepLen = i, len("'")
+	}
+	if i := strings.LastIndex(w, "’"); i > last {
+		last, sepLen = i, len("’")
+	}
+	if last >= 0 && last+sepLen < len(w) {
+		w = w[last+sepLen:]
+	}
+	return cleanWord(w, true)
+}
+
 func findAnagrams(words []string, sensitive bool, minLen int) string {
-	p := freqWords(words, sensitive)
 	targets := map[string]bool{}
 	wordSig := map[string]string{}
+	display := map[string]string{}
 	orderedWords := []string{}
 
-	for _, k := range p.order {
+	for _, raw := range words {
+		lexeme := anagramLexeme(raw)
+		if lexeme == "" {
+			continue
+		}
+		k := normalizeCase(lexeme, sensitive)
+		if _, seen := display[k]; seen {
+			continue
+		}
 		sig, letters := anagramSignatureKey(k)
 		if sig == "" || letters < minLen {
 			continue
 		}
 		targets[sig] = true
 		wordSig[k] = sig
+		display[k] = lexeme
 		orderedWords = append(orderedWords, k)
 	}
 
@@ -365,7 +392,7 @@ func findAnagrams(words []string, sensitive bool, minLen int) string {
 			continue
 		}
 
-		sourceNorm := strings.ToLower(cleanWord(p.display[k], false))
+		sourceNorm := strings.ToLower(cleanWord(display[k], false))
 		seen := map[string]bool{}
 		filtered := []string{}
 		for _, candidate := range candidates {
@@ -383,7 +410,7 @@ func findAnagrams(words []string, sensitive bool, minLen int) string {
 		if groups > 0 {
 			out = append(out, "")
 		}
-		out = append(out, p.display[k]+" →")
+		out = append(out, display[k]+" →")
 		for _, candidate := range filtered {
 			out = append(out, "    "+candidate)
 		}
