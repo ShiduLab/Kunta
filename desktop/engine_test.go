@@ -192,3 +192,28 @@ func TestParoleMostraTotaleDistinteEFrequenze(t *testing.T) {
 		}
 	}
 }
+
+func TestAnagrammiUsanoDizionarioCompleto(t *testing.T) {
+	got := analyze("caos", 15, "3", false)
+	low := strings.ToLower(got)
+	for _, want := range []string{"caso", "cosa"} {
+		if !strings.Contains(low, "    "+want) {
+			t.Fatalf("anagramma %q non trovato nel dizionario:\n%s", want, got)
+		}
+	}
+	if strings.Contains(low, "caos →\n    caos") {
+		t.Fatalf("la parola sorgente non deve essere proposta come proprio anagramma:\n%s", got)
+	}
+}
+
+func TestFirmaAnagrammaticaConservaMolteplicita(t *testing.T) {
+	a, _ := anagramSignatureKey("casa")
+	b, _ := anagramSignatureKey("caas")
+	c, _ := anagramSignatureKey("caso")
+	if a != b {
+		t.Fatalf("casa e caas devono avere la stessa firma")
+	}
+	if a == c {
+		t.Fatalf("casa e caso non devono avere la stessa firma")
+	}
+}
