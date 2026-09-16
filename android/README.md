@@ -1,15 +1,11 @@
 # Kunta Android
 
-Progetto Android autonomo.
+APK Android basato sullo stesso motore JavaScript della PWA, allineato al Desktop del 16 settembre 2026.
 
-- Java 17
-- Android Gradle Plugin 8.7.3
-- compile/target SDK 35
-- min SDK 23
-- UI Kunta incorporata in `app/src/main/assets/`
-- nessun collegamento alla PWA online
-- nessun `setup-android@v3`
-- nessuna dipendenza da una cartella esterna al progetto Android
+- 58 operazioni.
+- Dizionario anagrammatico integrato nell'APK.
+- Lookup del dizionario eseguito localmente tramite bridge Android, senza rete.
+- Supporto ad apertura file, clipboard e condivisione nativa.
+- Stesse correzioni semantiche di Desktop/PWA per anagrammi, strutture vocaliche/consonantiche, alfabetiche, palindromi, inversi e antipodi.
 
-La GitHub Action nella root usa Gradle 8.9 fornito direttamente da `gradle/actions/setup-gradle`.
-Non richiede `gradlew` nel repository.
+Versione Android: 1.1.0 (versionCode 2).
