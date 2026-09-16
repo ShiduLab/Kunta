@@ -40,8 +40,8 @@ var operations = []struct{ Name, Hint string }{
 	{"Kunta il testo (fenomeni)", "Ricognizione combinata di strutture e ricorrenze"},
 	{"Isovocaliche", "Raggruppa parole con lo stesso scheletro vocalico"},
 	{"Isoconsonantiche", "Raggruppa parole con lo stesso scheletro consonantico"},
-	{"Omovocaliche", "Stesso materiale vocalico, ordine non rilevante"},
-	{"Omoconsonantiche", "Stesso materiale consonantico, ordine non rilevante"},
+	{"Omovocaliche", "Stesso materiale vocalico; la sequenza resta nell’ordine reale di ogni parola"},
+	{"Omoconsonantiche", "Stesso materiale consonantico; la sequenza resta nell’ordine reale di ogni parola"},
 	{"Omovocaliche iniziali", "Parametro: quante vocali iniziali confrontare, default 1"},
 	{"Omovocaliche finali", "Parametro: quante vocali finali confrontare, default 1"},
 	{"Omoconsonantiche iniziali", "Parametro: quante consonanti iniziali confrontare, default 1"},
@@ -61,8 +61,8 @@ var operations = []struct{ Name, Hint string }{
 	{"Estrai parole", "Estrae solo le parole dal testo"},
 	{"Testo in MAIUSCOLO", "Converte il testo in maiuscolo"},
 	{"Testo in minuscolo", "Converte il testo in minuscolo"},
-	{"Palindromo inverso", "Inverte ogni parola: Rima → Amir"},
-	{"Palindromo contrario", "Rileva forme tipo POSSESSO: prima lettera fissa, resto palindromo"},
+	{"Inversi", "Ultima lettera fissa; mostra solo coppie realmente presenti nel testo"},
+	{"Antipodi", "Prima lettera fissa; mostra solo coppie realmente presenti nel testo"},
 	{"Allitterazioni", "Raggruppa parole per lettera iniziale ricorrente"},
 	{"Assonanze", "Raggruppa parole per coda vocalica"},
 	{"Consonanze", "Raggruppa parole per coda consonantica"},
@@ -741,6 +741,70 @@ func groupWordSignatures(words []string, label string, sig func(string) string) 
 	}
 	return limitLines(strings.Join(out, "\n"), 700)
 }
+func materialCountLabel(s string) string {
+	counts := map[rune]int{}
+	for _, r := range s {
+		counts[unicode.ToUpper(r)]++
+	}
+	keys := make([]rune, 0, len(counts))
+	for r := range counts {
+		keys = append(keys, r)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	parts := make([]string, 0, len(keys))
+	for _, r := range keys {
+		parts = append(parts, fmt.Sprintf("%c×%d", r, counts[r]))
+	}
+	return strings.Join(parts, " ")
+}
+
+func groupWordMaterials(words []string, label string, orderedSig func(string) string) string {
+	groups := map[string][]string{}
+	seen := map[string]map[string]bool{}
+	for _, raw := range words {
+		clean := cleanWord(raw, false)
+		if clean == "" {
+			continue
+		}
+		ordered := orderedSig(raw)
+		if ordered == "" {
+			continue
+		}
+		material := sortedSignature(ordered)
+		if seen[material] == nil {
+			seen[material] = map[string]bool{}
+		}
+		if !seen[material][clean] {
+			seen[material][clean] = true
+			groups[material] = append(groups[material], raw)
+		}
+	}
+	keys := []string{}
+	for k, a := range groups {
+		if len(a) >= 2 {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if runeLen(keys[i]) != runeLen(keys[j]) {
+			return runeLen(keys[i]) > runeLen(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+	out := []string{fmt.Sprintf("%s: %d gruppi", label, len(keys)), ""}
+	for _, k := range keys {
+		out = append(out, "Materiale: "+materialCountLabel(k))
+		for _, item := range groups[k] {
+			out = append(out, fmt.Sprintf("    %s  →  %s", item, prettySignature(orderedSig(item))))
+		}
+		out = append(out, "")
+	}
+	if len(keys) == 0 {
+		out = append(out, "Nessun gruppo rilevato nel testo.")
+	}
+	return limitLines(strings.Join(out, "\n"), 700)
+}
+
 func repeatedWordsSummary(text string, sensitive bool, maxItems int) string {
 	p := freqWords(tokenizeWords(text), sensitive)
 	keys := []string{}
@@ -885,32 +949,64 @@ func alphabeticWord(w string, descending bool) bool {
 	}
 	return true
 }
-func reverseWordDisplay(w string) string {
-	raw := cleanWord(w, true)
-	rev := reverseRunes(strings.ToLower(raw))
-	r := []rune(raw)
-	q := []rune(rev)
-	if len(r) > 0 && unicode.IsUpper(r[0]) && len(q) > 0 {
-		q[0] = unicode.ToUpper(q[0])
-		return string(q)
+func transformInverse(w string) string {
+	r := []rune(cleanWord(w, true))
+	if len(r) < 2 {
+		return ""
 	}
-	return rev
+	prefix := append([]rune(nil), r[:len(r)-1]...)
+	for i, j := 0, len(prefix)-1; i < j; i, j = i+1, j-1 {
+		prefix[i], prefix[j] = prefix[j], prefix[i]
+	}
+	return string(prefix) + string(r[len(r)-1])
 }
-func findContraryPalindromes(words []string, minLen int) string {
-	out := []string{}
-	for _, w := range uniqueDisplayWords(words, false) {
-		k := cleanWord(w, false)
-		r := []rune(k)
-		if len(r) < minLen+1 {
+
+func transformAntipode(w string) string {
+	r := []rune(cleanWord(w, true))
+	if len(r) < 2 {
+		return ""
+	}
+	tail := append([]rune(nil), r[1:]...)
+	for i, j := 0, len(tail)-1; i < j; i, j = i+1, j-1 {
+		tail[i], tail[j] = tail[j], tail[i]
+	}
+	return string(r[0]) + string(tail)
+}
+
+func findTransformPairs(words []string, sensitive bool, minLen int, label string, transform func(string) string) string {
+	p := freqWords(words, sensitive)
+	seen := map[string]bool{}
+	pairs := [][2]string{}
+	for k := range p.freq {
+		if runeLen(k) < minLen {
 			continue
 		}
-		tail := string(r[1:])
-		if tail == reverseRunes(tail) {
-			out = append(out, w)
+		other := transform(k)
+		if other == "" || other == k || p.freq[other] == 0 {
+			continue
 		}
+		a, b := k, other
+		if a > b {
+			a, b = b, a
+		}
+		key := a + "\x00" + b
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		pairs = append(pairs, [2]string{p.display[k], p.display[other]})
 	}
-	return fmt.Sprintf("Palindromi contrari: %d\n\n%s", len(out), strings.Join(out, "\n"))
+	sort.Slice(pairs, func(i, j int) bool { return strings.ToLower(pairs[i][0]) < strings.ToLower(pairs[j][0]) })
+	out := []string{fmt.Sprintf("%s trovati: %d", label, len(pairs)), fmt.Sprintf("Lunghezza minima: %d", minLen), ""}
+	for _, pair := range pairs {
+		out = append(out, pair[0]+" ↔ "+pair[1])
+	}
+	if len(pairs) == 0 {
+		out = append(out, "Nessuna coppia presente nel testo.")
+	}
+	return strings.Join(out, "\n")
 }
+
 func suffixChars(s string, n int) string {
 	r := []rune(s)
 	if len(r) < n {
@@ -1226,9 +1322,9 @@ func analyze(text string, op int, p string, sensitive bool) string {
 	case 28:
 		return groupWordSignatures(words, "Isoconsonantiche · stesso scheletro consonantico", consonantSkeleton)
 	case 29:
-		return groupWordSignatures(words, "Omovocaliche · stesso materiale vocalico (ordine non rilevante)", func(w string) string { return sortedSignature(vowelSkeleton(w)) })
+		return groupWordMaterials(words, "Omovocaliche · stesso materiale vocalico", vowelSkeleton)
 	case 30:
-		return groupWordSignatures(words, "Omoconsonantiche · stesso materiale consonantico (ordine non rilevante)", func(w string) string { return sortedSignature(consonantSkeleton(w)) })
+		return groupWordMaterials(words, "Omoconsonantiche · stesso materiale consonantico", consonantSkeleton)
 	case 31:
 		n := parsePositive(p, 1, 1, 8)
 		return groupWordSignatures(words, fmt.Sprintf("Omovocaliche iniziali · prime %d vocali", n), func(w string) string { return boundarySignature(vowelSkeleton(w), n, false) })
@@ -1320,14 +1416,9 @@ func analyze(text string, op int, p string, sensitive bool) string {
 	case 49:
 		return strings.ToLower(text)
 	case 50:
-		a := uniqueDisplayWords(words, true)
-		o := []string{fmt.Sprintf("Palindromo inverso · %d trasformazioni", len(a)), ""}
-		for _, w := range a {
-			o = append(o, w+" → "+reverseWordDisplay(w))
-		}
-		return strings.Join(o, "\n")
+		return findTransformPairs(words, sensitive, parsePositive(p, 3, 2, 100), "Inversi", transformInverse)
 	case 51:
-		return findContraryPalindromes(words, parsePositive(p, 3, 1, 100))
+		return findTransformPairs(words, sensitive, parsePositive(p, 3, 2, 100), "Antipodi", transformAntipode)
 	case 52:
 		return groupByKey(words, "Allitterazioni", func(w string) string {
 			r := []rune(cleanWord(w, false))
