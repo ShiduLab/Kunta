@@ -640,7 +640,7 @@ public class MainActivity extends Activity {
                 }
                 if (wanted.isEmpty()) return result.toString();
 
-                try (InputStream raw = getAssets().open("assets/anagram_index.tsv.gz");
+                try (InputStream raw = getAssets().open("anagram_index.tsv.gz");
                      GZIPInputStream gz = new GZIPInputStream(raw);
                      BufferedReader reader = new BufferedReader(new InputStreamReader(gz, StandardCharsets.UTF_8), 64 * 1024)) {
                     String line;
