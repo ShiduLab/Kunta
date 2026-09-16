@@ -289,11 +289,11 @@ type MINMAXINFO struct {
 func rgb(r, g, b byte) uintptr { return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16 }
 
 var (
-	hwndMain                                                                                   uintptr
-	hTitle, hTagline, hInput, hParam, hCombo, hOpList, hCase, hHint, hOutput, hStatus, hFooter uintptr
-	appIcon                                                                                    uintptr
-	controlsByID                                                                               = map[int]uintptr{}
-	panelStatics                                                                               = map[uintptr]bool{}
+	hwndMain                                                                          uintptr
+	hTitle, hTagline, hInput, hParam, hCombo, hCase, hHint, hOutput, hStatus, hFooter uintptr
+	appIcon                                                                           uintptr
+	controlsByID                                                                      = map[int]uintptr{}
+	panelStatics                                                                      = map[uintptr]bool{}
 
 	fontUI, fontSmall, fontTitle, fontMono, fontBold                   uintptr
 	brushBG, brushPanel, brushInput, brushAccent, brushSoft, brushLine uintptr
@@ -320,7 +320,6 @@ var (
 	botoloHeight int
 	botoloStride int
 	selectedOp   = 20
-	opListOpen   bool
 )
 
 // Botolo originale della PWA, senza riquadri colorati; il fondo coincide con quello della UI.
@@ -644,26 +643,8 @@ func selectOperation(i int) {
 		return
 	}
 	selectedOp = i
-	setText(hCombo, operations[i].Name)
-	if hOpList != 0 {
-		procSendMessageW.Call(hOpList, LB_SETCURSEL, uintptr(i), 0)
-	}
+	procSendMessageW.Call(hCombo, CB_SETCURSEL, uintptr(i), 0)
 	updateHint()
-	procInvalidateRect.Call(hCombo, 0, 1)
-}
-func showOperationList(show bool) {
-	if hOpList == 0 {
-		return
-	}
-	opListOpen = show
-	if show {
-		procSendMessageW.Call(hOpList, LB_SETCURSEL, uintptr(selectedOp), 0)
-		procShowWindow.Call(hOpList, SW_SHOW)
-		procSetFocus.Call(hOpList)
-	} else {
-		procShowWindow.Call(hOpList, SW_HIDE)
-	}
-	procInvalidateRect.Call(hCombo, 0, 1)
 }
 func setBusy(v bool) {
 	busyMu.Lock()
@@ -678,9 +659,7 @@ func setBusy(v bool) {
 		procEnableWindow.Call(controlsByID[id], enabled)
 	}
 	procEnableWindow.Call(hCombo, enabled)
-	procEnableWindow.Call(hOpList, enabled)
 	if v {
-		showOperationList(false)
 		setText(hStatus, "Kunta sta lavorando…")
 	} else {
 		setText(hStatus, fmt.Sprintf("Locale · %d operazioni · menu destro attivo · nessun invio esterno", len(operations)))
@@ -772,16 +751,18 @@ func layout() {
 	move(controlsByID[ID_LABEL_OPERATION], panelX+inner, panelY+scale(8), comboW-inner*2, labelH)
 	move(controlsByID[ID_LABEL_PARAM], panelX+comboW+gap+inner, panelY+scale(8), paramW-inner*2, labelH)
 	fieldY := panelY + scale(31)
-	move(hCombo, panelX+inner, fieldY, comboW-inner*2, scale(36))
-	listH := scale(420)
-	maxListH := h - (fieldY + scale(38)) - scale(68)
-	if maxListH < scale(150) {
-		maxListH = scale(150)
+	// Per una COMBOBOX Win32 l'altezza passata a MoveWindow comprende anche
+	// l'area della tendina. Se la si riduce all'altezza del solo campo, il
+	// popup sembra aprirsi e richiudersi subito. Lasciamo spazio reale a 18 voci.
+	comboDropH := scale(430)
+	maxDropH := h - fieldY - scale(72)
+	if comboDropH > maxDropH {
+		comboDropH = maxDropH
 	}
-	if listH > maxListH {
-		listH = maxListH
+	if comboDropH < scale(220) {
+		comboDropH = scale(220)
 	}
-	move(hOpList, panelX+inner, fieldY+scale(37), comboW-inner*2, listH)
+	move(hCombo, panelX+inner, fieldY, comboW-inner*2, comboDropH)
 	move(hParam, panelX+comboW+gap+inner, fieldY, paramW-inner*2, scale(36))
 	runW := scale(105)
 	caseW := rightW - runW - gap
@@ -1121,23 +1102,17 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			selectOperation(28)
 			safeUI("Isoconsonantiche", func() { runOp(28) })
 		case ID_COMBO:
-			if code == 0 { // BN_CLICKED
-				showOperationList(!opListOpen)
-			}
-		case ID_OPLIST:
-			if code == 1 { // LBN_SELCHANGE
-				i, _, _ := procSendMessageW.Call(hOpList, LB_GETCURSEL, 0, 0)
+			if code == 1 { // CBN_SELCHANGE
+				i, _, _ := procSendMessageW.Call(hCombo, CB_GETCURSEL, 0, 0)
 				if int(i) >= 0 && int(i) < len(operations) {
-					selectOperation(int(i))
+					selectedOp = int(i)
+					updateHint()
 				}
-				showOperationList(false)
-				procSetFocus.Call(hCombo)
 			}
 		case ID_RUN:
 			if code != 0 {
 				return 0
 			} // BN_CLICKED
-			showOperationList(false)
 			safeUI("KUNTA", func() { runOp(selectedOp) })
 		case ID_COPY:
 			if code != 0 {
@@ -1231,7 +1206,15 @@ func main() {
 
 	addStatic(fmt.Sprintf("Operazione · %d voci", len(operations)), ID_LABEL_OPERATION, true)
 	addStatic("Parametro", ID_LABEL_PARAM, true)
-	hCombo = addButton("", ID_COMBO)
+	hCombo = create("COMBOBOX", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST|CBS_HASSTRINGS|CBS_NOINTEGRALHEIGHT, WS_EX_CLIENTEDGE, ID_COMBO)
+	for _, op := range operations {
+		procSendMessageW.Call(hCombo, CB_ADDSTRING, 0, uintptr(unsafe.Pointer(u16(op.Name))))
+	}
+	procSendMessageW.Call(hCombo, CB_SETMINVISIBLE, 18, 0)
+	procSendMessageW.Call(hCombo, CB_SETDROPPEDWIDTH, uintptr(scale(560)), 0)
+	if n, _, _ := procSendMessageW.Call(hCombo, CB_GETCOUNT, 0, 0); int(n) != len(operations) {
+		message(fmt.Sprintf("Errore interno: operazioni caricate %d su %d.", int(n), len(operations)))
+	}
 
 	hParam = create("EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, ID_PARAM)
 	procSendMessageW.Call(hParam, EM_SETMARGINS, EC_LEFTMARGIN|EC_RIGHTMARGIN, uintptr(scale(8)|(scale(8)<<16)))
@@ -1251,16 +1234,7 @@ func main() {
 	hStatus = addStatic(statusText, ID_STATUS, false)
 	hFooter = addButton("ShiduLab", ID_FOOTER)
 
-	// Creato per ultimo: quando aperto resta sopra agli altri controlli, come una vera tendina.
-	hOpList = create("LISTBOX", "", WS_CHILD|WS_TABSTOP|WS_VSCROLL|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT, WS_EX_CLIENTEDGE, ID_OPLIST)
-	for _, op := range operations {
-		procSendMessageW.Call(hOpList, LB_ADDSTRING, 0, uintptr(unsafe.Pointer(u16(op.Name))))
-	}
-	if n, _, _ := procSendMessageW.Call(hOpList, LB_GETCOUNT, 0, 0); int(n) != len(operations) {
-		message(fmt.Sprintf("Errore interno: operazioni caricate %d su %d.", int(n), len(operations)))
-	}
 	selectOperation(20)
-	showOperationList(false)
 
 	layout()
 	procShowWindow.Call(hwndMain, SW_MAXIMIZE)
