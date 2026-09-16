@@ -221,16 +221,24 @@ func TestFirmaAnagrammaticaConservaMolteplicita(t *testing.T) {
 func TestAnagrammiIgnoranoElisioniIniziali(t *testing.T) {
 	got := analyze("L'Empatia nell'amare un'altra", 15, "3", false)
 	low := strings.ToLower(got)
-	if !strings.Contains(low, "empatia →") {
-		t.Fatalf("Empatia deve essere analizzata senza articolo eliso:\n%s", got)
-	}
 	if strings.Contains(low, "l'empatia →") || strings.Contains(low, "lempatia →") {
 		t.Fatalf("l'articolo eliso non deve entrare nella parola anagrammata:\n%s", got)
+	}
+	if anagramLexeme("L'Empatia") != "Empatia" {
+		t.Fatalf("L'Empatia deve diventare Empatia, ottenuto %q", anagramLexeme("L'Empatia"))
 	}
 	if anagramLexeme("nell'amare") != "amare" {
 		t.Fatalf("nell'amare deve diventare amare, ottenuto %q", anagramLexeme("nell'amare"))
 	}
 	if anagramLexeme("un’altra") != "altra" {
 		t.Fatalf("un’altra deve diventare altra, ottenuto %q", anagramLexeme("un’altra"))
+	}
+}
+
+func TestAnagrammiEscludonoStessaParolaConAccento(t *testing.T) {
+	got := analyze("Empatia", 15, "3", false)
+	low := strings.ToLower(got)
+	if strings.Contains(low, "    empatìa") || strings.Contains(low, "    empatia") {
+		t.Fatalf("la stessa parola, con o senza accento grafico, non deve essere proposta come anagramma:\n%s", got)
 	}
 }
