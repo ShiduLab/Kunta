@@ -55,8 +55,8 @@ var operations = []struct{ Name, Hint string }{
 	{"Doppie / triple", "Rileva lettere consecutive ripetute nelle parole"},
 	{"Sequenze ripetute", "Parametro: lunghezza minima della sequenza, default 2"},
 	{"Isogrammi", "Parole senza lettere ripetute"},
-	{"Parole alfabetiche", "Lettere in ordine alfabetico crescente"},
-	{"Parole alfabetiche inverse", "Lettere in ordine alfabetico decrescente"},
+	{"Parole alfabetiche", "Lettere consecutive dell’alfabeto: AB, ABC, BCD…"},
+	{"Parole alfabetiche inverse", "Lettere consecutive dell’alfabeto al contrario: BA, CBA, FED…"},
 	{"Elimina duplicati", "Restituisce le parole una sola volta, nell’ordine di apparizione"},
 	{"Estrai parole", "Estrae solo le parole dal testo"},
 	{"Testo in MAIUSCOLO", "Converte il testo in maiuscolo"},
@@ -928,28 +928,107 @@ func isIsogram(w string) bool {
 	}
 	return n > 1
 }
+func foldAlphabetRune(r rune) rune {
+	r = unicode.ToLower(r)
+	switch r {
+	case 'à', 'á', 'â', 'ä', 'ã', 'å':
+		return 'a'
+	case 'è', 'é', 'ê', 'ë':
+		return 'e'
+	case 'ì', 'í', 'î', 'ï':
+		return 'i'
+	case 'ò', 'ó', 'ô', 'ö', 'õ':
+		return 'o'
+	case 'ù', 'ú', 'û', 'ü':
+		return 'u'
+	}
+	return r
+}
+
 func alphabeticWord(w string, descending bool) bool {
 	a := []rune{}
 	for _, r := range cleanWord(w, false) {
-		if unicode.IsLetter(r) {
-			a = append(a, unicode.ToLower(r))
+		if !unicode.IsLetter(r) {
+			continue
 		}
+		r = foldAlphabetRune(r)
+		if r < 'a' || r > 'z' {
+			return false
+		}
+		a = append(a, r)
 	}
 	if len(a) < 2 {
 		return false
 	}
+	step := rune(1)
+	if descending {
+		step = -1
+	}
 	for i := 1; i < len(a); i++ {
-		if descending {
-			if a[i-1] < a[i] {
-				return false
-			}
-		} else {
-			if a[i-1] > a[i] {
-				return false
-			}
+		if a[i] != a[i-1]+step {
+			return false
 		}
 	}
 	return true
+}
+
+func displayCharacter(r rune, sensitive bool) string {
+	if !sensitive && unicode.IsLetter(r) {
+		r = unicode.ToUpper(r)
+	}
+	switch r {
+	case ' ':
+		return "[spazio]"
+	case '\n':
+		return "[a capo]"
+	case '\r':
+		return "[ritorno carrello]"
+	case '\t':
+		return "[tab]"
+	}
+	return string(r)
+}
+
+func characterFrequency(text string, sensitive bool) string {
+	freq := map[rune]int{}
+	for _, r := range text {
+		k := r
+		if !sensitive && unicode.IsLetter(k) {
+			k = unicode.ToLower(k)
+		}
+		freq[k]++
+	}
+	keys := make([]rune, 0, len(freq))
+	for r := range freq {
+		keys = append(keys, r)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if freq[keys[i]] != freq[keys[j]] {
+			return freq[keys[i]] > freq[keys[j]]
+		}
+		return displayCharacter(keys[i], sensitive) < displayCharacter(keys[j], sensitive)
+	})
+	out := []string{fmt.Sprintf("Caratteri: %d", runeLen(text)), ""}
+	for _, r := range keys {
+		out = append(out, fmt.Sprintf("%d: %s", freq[r], displayCharacter(r, sensitive)))
+	}
+	return strings.Join(out, "\n")
+}
+
+func wordFrequencySummary(words []string, sensitive bool) string {
+	p := freqWords(words, sensitive)
+	keys := append([]string{}, p.order...)
+	sort.Slice(keys, func(i, j int) bool {
+		if p.freq[keys[i]] != p.freq[keys[j]] {
+			return p.freq[keys[i]] > p.freq[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+	out := []string{fmt.Sprintf("Parole: %d", len(words)), fmt.Sprintf("Parole distinte: %d", len(keys)), ""}
+	for _, k := range keys {
+		out = append(out, fmt.Sprintf("%d: %s", p.freq[k], p.display[k]))
+	}
+	return strings.Join(out, "\n")
 }
 func findContraryPalindromes(words []string, minLen int) string {
 	out := []string{}
@@ -1179,9 +1258,9 @@ func analyze(text string, op int, p string, sensitive bool) string {
 		}
 		return strings.Join(out, "\n") + fmt.Sprintf("\n\nTotale caratteri cercati: %d", total)
 	case 1:
-		return fmt.Sprintf("Caratteri (Unicode): %d\nByte UTF-8: %d", runeLen(text), len([]byte(text)))
+		return characterFrequency(text, sensitive)
 	case 2:
-		return fmt.Sprintf("Parole: %d\nParole distinte: %d", len(words), len(freqWords(words, sensitive).freq))
+		return wordFrequencySummary(words, sensitive)
 	case 3:
 		n := 0
 		for _, l := range lines {
