@@ -217,3 +217,20 @@ func TestFirmaAnagrammaticaConservaMolteplicita(t *testing.T) {
 		t.Fatalf("casa e caso non devono avere la stessa firma")
 	}
 }
+
+func TestAnagrammiIgnoranoElisioniIniziali(t *testing.T) {
+	got := analyze("L'Empatia nell'amare un'altra", 15, "3", false)
+	low := strings.ToLower(got)
+	if !strings.Contains(low, "empatia →") {
+		t.Fatalf("Empatia deve essere analizzata senza articolo eliso:\n%s", got)
+	}
+	if strings.Contains(low, "l'empatia →") || strings.Contains(low, "lempatia →") {
+		t.Fatalf("l'articolo eliso non deve entrare nella parola anagrammata:\n%s", got)
+	}
+	if anagramLexeme("nell'amare") != "amare" {
+		t.Fatalf("nell'amare deve diventare amare, ottenuto %q", anagramLexeme("nell'amare"))
+	}
+	if anagramLexeme("un’altra") != "altra" {
+		t.Fatalf("un’altra deve diventare altra, ottenuto %q", anagramLexeme("un’altra"))
+	}
+}
