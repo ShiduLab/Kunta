@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
+	_ "embed"
 	"fmt"
 	"sort"
 	"strconv"
@@ -9,6 +13,9 @@ import (
 )
 
 // Kunta Desktop native: single Windows executable, no browser, no local HTTP server.
+
+//go:embed assets/anagram_index.tsv.gz
+var anagramIndexGzip []byte
 
 var operations = []struct{ Name, Hint string }{
 	{"Lettere indicate", "Scrivi le lettere da contare, es. aeiou"},
@@ -253,29 +260,142 @@ func findBifronti(words []string, sensitive bool, minLen int) string {
 	}
 	return strings.Join(out, "\n")
 }
-func findAnagrams(words []string, sensitive bool, minLen int) string {
-	p := freqWords(words, sensitive)
-	g := map[string][]string{}
-	for _, k := range p.order {
-		if runeLen(k) < minLen {
+func baseAnagramRune(r rune) rune {
+	r = unicode.ToLower(r)
+	switch r {
+	case 'à', 'á', 'â', 'ä', 'ã', 'å':
+		return 'a'
+	case 'è', 'é', 'ê', 'ë':
+		return 'e'
+	case 'ì', 'í', 'î', 'ï':
+		return 'i'
+	case 'ò', 'ó', 'ô', 'ö', 'õ':
+		return 'o'
+	case 'ù', 'ú', 'û', 'ü':
+		return 'u'
+	case 'ç':
+		return 'c'
+	}
+	if r >= 'a' && r <= 'z' {
+		return r
+	}
+	return 0
+}
+
+func anagramSignatureKey(word string) (string, int) {
+	var counts [26]byte
+	letters := 0
+	for _, r := range word {
+		if unicode.IsNumber(r) {
+			return "", 0
+		}
+		b := baseAnagramRune(r)
+		if b == 0 {
 			continue
 		}
-		sig := sortedRunes(k)
-		g[sig] = append(g[sig], p.display[k])
+		counts[b-'a']++
+		letters++
 	}
-	groups := [][]string{}
-	for _, a := range g {
-		if len(a) > 1 {
-			sort.Slice(a, func(i, j int) bool { return strings.ToLower(a[i]) < strings.ToLower(a[j]) })
-			groups = append(groups, a)
+	if letters == 0 {
+		return "", 0
+	}
+	return fmt.Sprintf("%x", counts[:]), letters
+}
+
+func dictionaryAnagrams(signatures map[string]bool) (map[string][]string, error) {
+	found := make(map[string][]string, len(signatures))
+	zr, err := gzip.NewReader(bytes.NewReader(anagramIndexGzip))
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+
+	sc := bufio.NewScanner(zr)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		tab := strings.IndexByte(line, '\t')
+		if tab <= 0 {
+			continue
 		}
+		sig := line[:tab]
+		if !signatures[sig] {
+			continue
+		}
+		vals := strings.Split(line[tab+1:], "|")
+		found[sig] = vals
 	}
-	sort.Slice(groups, func(i, j int) bool { return strings.ToLower(groups[i][0]) < strings.ToLower(groups[j][0]) })
-	out := []string{fmt.Sprintf("Gruppi di anagrammi: %d", len(groups)), fmt.Sprintf("Lunghezza minima: %d", minLen), ""}
-	for _, a := range groups {
-		out = append(out, "• "+strings.Join(a, "\n• "))
+	if err := sc.Err(); err != nil {
+		return nil, err
 	}
-	return limitLines(strings.Join(out, "\n"), 700)
+	return found, nil
+}
+
+func findAnagrams(words []string, sensitive bool, minLen int) string {
+	p := freqWords(words, sensitive)
+	targets := map[string]bool{}
+	wordSig := map[string]string{}
+	orderedWords := []string{}
+
+	for _, k := range p.order {
+		sig, letters := anagramSignatureKey(k)
+		if sig == "" || letters < minLen {
+			continue
+		}
+		targets[sig] = true
+		wordSig[k] = sig
+		orderedWords = append(orderedWords, k)
+	}
+
+	if len(targets) == 0 {
+		return fmt.Sprintf("Anagrammi trovati: 0\nLunghezza minima: %d\n\nNessuna parola analizzabile.", minLen)
+	}
+
+	matches, err := dictionaryAnagrams(targets)
+	if err != nil {
+		return "Errore nell'indice anagrammatico: " + err.Error()
+	}
+
+	out := []string{}
+	groups := 0
+	for _, k := range orderedWords {
+		sig := wordSig[k]
+		candidates := matches[sig]
+		if len(candidates) == 0 {
+			continue
+		}
+
+		sourceNorm := strings.ToLower(cleanWord(p.display[k], false))
+		seen := map[string]bool{}
+		filtered := []string{}
+		for _, candidate := range candidates {
+			cn := strings.ToLower(cleanWord(candidate, false))
+			if cn == sourceNorm || seen[cn] {
+				continue
+			}
+			seen[cn] = true
+			filtered = append(filtered, candidate)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		sort.Slice(filtered, func(i, j int) bool { return strings.ToLower(filtered[i]) < strings.ToLower(filtered[j]) })
+		if groups > 0 {
+			out = append(out, "")
+		}
+		out = append(out, p.display[k]+" →")
+		for _, candidate := range filtered {
+			out = append(out, "    "+candidate)
+		}
+		groups++
+	}
+
+	header := []string{fmt.Sprintf("Anagrammi: %d parole del testo con almeno un anagramma", groups), fmt.Sprintf("Lunghezza minima: %d", minLen), ""}
+	if groups == 0 {
+		header = append(header, "Nessun anagramma trovato nel dizionario.")
+		return strings.Join(header, "\n")
+	}
+	return strings.Join(append(header, out...), "\n")
 }
 func finalWordOfLine(line string, sensitive bool) string {
 	w := tokenizeWords(line)
