@@ -1,6 +1,6 @@
 # Kunta
 
-**ShiduLab · 2026** EXE, APK, PWA-> https://shidulab.github.io/Kunta/
+**ShiduLab · 2026** EXE · APK · PWA-> https://shidulab.github.io/Kunta/
 
 Kunta è un utensile portatile per interrogare, contare, osservare e giocare con i testi.
 Non genera frasi al posto di chi scrive: mette in evidenza strutture, ricorrenze, trasformazioni e peculiarità linguistiche già presenti nelle parole e nei testi.
