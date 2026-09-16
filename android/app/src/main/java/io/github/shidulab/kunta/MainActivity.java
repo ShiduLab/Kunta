@@ -8,7 +8,6 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.OpenableColumns;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -35,7 +34,6 @@ public class MainActivity extends Activity {
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
     private String pendingSharedText;
-    private boolean nativeTextPicker;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,8 +64,10 @@ public class MainActivity extends Activity {
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
                 fileCallback = callback;
-                nativeTextPicker = false;
-                launchTextPicker();
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("text/*");
+                startActivityForResult(intent, FILE_REQUEST);
                 return true;
             }
         });
@@ -94,60 +94,6 @@ public class MainActivity extends Activity {
         else webView.restoreState(savedInstanceState);
     }
 
-    private void launchTextPicker() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        // Nessun filtro MIME: alcuni file manager marcano TXT/MD/LOG come octet-stream.
-        // La validazione avviene dopo la selezione tentando la lettura come testo UTF-8.
-        intent.setType("*/*");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivityForResult(intent, FILE_REQUEST);
-    }
-
-    private String displayName(Uri uri) {
-        if (uri == null) return "file";
-        try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (idx >= 0) {
-                    String name = cursor.getString(idx);
-                    if (name != null && !name.isEmpty()) return name;
-                }
-            }
-        } catch (Exception ignored) {}
-        String tail = uri.getLastPathSegment();
-        return tail == null || tail.isEmpty() ? "file" : tail;
-    }
-
-    private String readTextUri(Uri uri) throws Exception {
-        StringBuilder out = new StringBuilder();
-        try (InputStream raw = getContentResolver().openInputStream(uri)) {
-            if (raw == null) throw new IllegalStateException("Impossibile aprire il file selezionato.");
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(raw, StandardCharsets.UTF_8), 64 * 1024)) {
-                char[] buffer = new char[16 * 1024];
-                int n;
-                while ((n = reader.read(buffer)) != -1) out.append(buffer, 0, n);
-            }
-        }
-        if (out.length() > 0 && out.charAt(0) == '\uFEFF') out.deleteCharAt(0);
-        return out.toString();
-    }
-
-    private void deliverTextToWeb(String text, String status) {
-        if (webView == null) return;
-        String quotedText = JSONObject.quote(text == null ? "" : text);
-        String quotedStatus = JSONObject.quote(status == null ? "" : status);
-        webView.evaluateJavascript(
-                "(function(){" +
-                        "var e=document.getElementById('inputText');" +
-                        "if(e){e.value=" + quotedText + ";e.dispatchEvent(new Event('input',{bubbles:true}));}" +
-                        "var s=document.getElementById('status');" +
-                        "if(s)s.textContent=" + quotedStatus + ";" +
-                        "})();",
-                null);
-    }
-
     private boolean handleUri(Uri uri) {
         if (uri == null) return false;
         String url = uri.toString();
@@ -168,9 +114,9 @@ public class MainActivity extends Activity {
 
     private void deliverSharedText() {
         if (pendingSharedText == null || pendingSharedText.isEmpty() || webView == null) return;
-        String text = pendingSharedText;
+        String quoted = JSONObject.quote(pendingSharedText);
         pendingSharedText = null;
-        deliverTextToWeb(text, "Testo ricevuto dalla condivisione.");
+        webView.evaluateJavascript("(function(){var e=document.getElementById('inputText');if(e){e.value=" + quoted + ";e.dispatchEvent(new Event('input',{bubbles:true}));}var s=document.getElementById('status');if(s)s.textContent='Testo ricevuto dalla condivisione.';})();", null);
     }
 
     @Override
@@ -184,32 +130,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != FILE_REQUEST) return;
-
-        Uri uri = resultCode == RESULT_OK && data != null ? data.getData() : null;
-
-        if (nativeTextPicker) {
-            nativeTextPicker = false;
-            if (uri == null) return;
-            final Uri selected = uri;
-            new Thread(() -> {
-                try {
-                    String text = readTextUri(selected);
-                    String name = displayName(selected);
-                    runOnUiThread(() -> deliverTextToWeb(text, "Aperto: " + name));
-                } catch (Exception e) {
-                    String error = "Errore apertura file: " + e.getMessage();
-                    runOnUiThread(() -> deliverTextToWeb("", error));
-                }
-            }, "KuntaFileReader").start();
-            return;
-        }
-
-        if (fileCallback != null) {
-            Uri[] result = uri == null ? null : new Uri[]{uri};
-            fileCallback.onReceiveValue(result);
-            fileCallback = null;
-        }
+        if (requestCode != FILE_REQUEST || fileCallback == null) return;
+        Uri[] result = null;
+        if (resultCode == RESULT_OK && data != null && data.getData() != null) result = new Uri[]{data.getData()};
+        fileCallback.onReceiveValue(result);
+        fileCallback = null;
     }
 
     @Override
@@ -226,18 +151,6 @@ public class MainActivity extends Activity {
     }
 
     private class NativeBridge {
-        @JavascriptInterface
-        public void openTextFile() {
-            runOnUiThread(() -> {
-                if (fileCallback != null) {
-                    fileCallback.onReceiveValue(null);
-                    fileCallback = null;
-                }
-                nativeTextPicker = true;
-                launchTextPicker();
-            });
-        }
-
         @JavascriptInterface
         public String readClipboard() {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
