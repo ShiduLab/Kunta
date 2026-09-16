@@ -144,3 +144,51 @@ func TestFourDistinctEnigmaticOperations(t *testing.T) {
 		}
 	}
 }
+
+func TestParoleAlfabeticheSonoConsecutive(t *testing.T) {
+	got := analyze("ab abc bcd def xyz al ci del", 44, "", false)
+	low := strings.ToLower(got)
+	for _, want := range []string{"ab", "abc", "bcd", "def", "xyz"} {
+		if !strings.Contains(low, "\n"+want+"\n") && !strings.HasSuffix(low, "\n"+want) {
+			t.Fatalf("sequenza alfabetica %q non rilevata:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"al", "ci", "del"} {
+		if strings.Contains(low, "\n"+bad+"\n") || strings.HasSuffix(low, "\n"+bad) {
+			t.Fatalf("%q non è una sequenza alfabetica consecutiva:\n%s", bad, got)
+		}
+	}
+}
+
+func TestParoleAlfabeticheInverseSonoConsecutive(t *testing.T) {
+	got := analyze("ba cba fed zyx la eda", 45, "", false)
+	low := strings.ToLower(got)
+	for _, want := range []string{"ba", "cba", "fed", "zyx"} {
+		if !strings.Contains(low, "\n"+want+"\n") && !strings.HasSuffix(low, "\n"+want) {
+			t.Fatalf("sequenza alfabetica inversa %q non rilevata:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"la", "eda"} {
+		if strings.Contains(low, "\n"+bad+"\n") || strings.HasSuffix(low, "\n"+bad) {
+			t.Fatalf("%q non è una sequenza alfabetica inversa consecutiva:\n%s", bad, got)
+		}
+	}
+}
+
+func TestCaratteriMostraTotaleEFrequenze(t *testing.T) {
+	got := analyze("AaA cc", 1, "", false)
+	for _, want := range []string{"Caratteri: 6", "3: A", "2: C", "1: [spazio]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("manca %q nell'output Caratteri:\n%s", want, got)
+		}
+	}
+}
+
+func TestParoleMostraTotaleDistinteEFrequenze(t *testing.T) {
+	got := analyze("Ciao ciao mondo ciao", 2, "", false)
+	for _, want := range []string{"Parole: 4", "Parole distinte: 2", "3: Ciao", "1: mondo"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("manca %q nell'output Parole:\n%s", want, got)
+		}
+	}
+}
