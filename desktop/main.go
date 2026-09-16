@@ -61,6 +61,8 @@ var operations = []struct{ Name, Hint string }{
 	{"Estrai parole", "Estrae solo le parole dal testo"},
 	{"Testo in MAIUSCOLO", "Converte il testo in maiuscolo"},
 	{"Testo in minuscolo", "Converte il testo in minuscolo"},
+	{"Palindromo inverso", "Parola letta al contrario; mostra solo coppie realmente presenti nel testo"},
+	{"Palindromo contrario", "Rileva forme tipo POSSESSO: prima lettera fissa, resto palindromo"},
 	{"Inversi", "Ultima lettera fissa; mostra solo coppie realmente presenti nel testo"},
 	{"Antipodi", "Prima lettera fissa; mostra solo coppie realmente presenti nel testo"},
 	{"Allitterazioni", "Raggruppa parole per lettera iniziale ricorrente"},
@@ -949,6 +951,56 @@ func alphabeticWord(w string, descending bool) bool {
 	}
 	return true
 }
+func findContraryPalindromes(words []string, minLen int) string {
+	out := []string{}
+	for _, w := range uniqueDisplayWords(words, false) {
+		k := cleanWord(w, false)
+		r := []rune(k)
+		if len(r) < minLen+1 {
+			continue
+		}
+		tail := string(r[1:])
+		if tail == reverseRunes(tail) {
+			out = append(out, w)
+		}
+	}
+	return fmt.Sprintf("Palindromi contrari: %d\n\n%s", len(out), strings.Join(out, "\n"))
+}
+
+func findReversePairs(words []string, sensitive bool, minLen int, label string) string {
+	p := freqWords(words, sensitive)
+	seen := map[string]bool{}
+	pairs := [][2]string{}
+	for k := range p.freq {
+		if runeLen(k) < minLen {
+			continue
+		}
+		rev := reverseRunes(k)
+		if rev == k || p.freq[rev] == 0 {
+			continue
+		}
+		a, b := k, rev
+		if a > b {
+			a, b = b, a
+		}
+		key := a + "\x00" + b
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		pairs = append(pairs, [2]string{p.display[k], p.display[rev]})
+	}
+	sort.Slice(pairs, func(i, j int) bool { return strings.ToLower(pairs[i][0]) < strings.ToLower(pairs[j][0]) })
+	out := []string{fmt.Sprintf("%s trovati: %d", label, len(pairs)), fmt.Sprintf("Lunghezza minima: %d", minLen), ""}
+	for _, pair := range pairs {
+		out = append(out, pair[0]+" ↔ "+pair[1])
+	}
+	if len(pairs) == 0 {
+		out = append(out, "Nessuna coppia presente nel testo.")
+	}
+	return strings.Join(out, "\n")
+}
+
 func transformInverse(w string) string {
 	r := []rune(cleanWord(w, true))
 	if len(r) < 2 {
@@ -1416,10 +1468,14 @@ func analyze(text string, op int, p string, sensitive bool) string {
 	case 49:
 		return strings.ToLower(text)
 	case 50:
-		return findTransformPairs(words, sensitive, parsePositive(p, 3, 2, 100), "Inversi", transformInverse)
+		return findReversePairs(words, sensitive, parsePositive(p, 3, 2, 100), "Palindromi inversi")
 	case 51:
-		return findTransformPairs(words, sensitive, parsePositive(p, 3, 2, 100), "Antipodi", transformAntipode)
+		return findContraryPalindromes(words, parsePositive(p, 3, 1, 100))
 	case 52:
+		return findTransformPairs(words, sensitive, parsePositive(p, 3, 2, 100), "Inversi", transformInverse)
+	case 53:
+		return findTransformPairs(words, sensitive, parsePositive(p, 3, 2, 100), "Antipodi", transformAntipode)
+	case 54:
 		return groupByKey(words, "Allitterazioni", func(w string) string {
 			r := []rune(cleanWord(w, false))
 			if len(r) > 0 {
@@ -1427,11 +1483,11 @@ func analyze(text string, op int, p string, sensitive bool) string {
 			}
 			return ""
 		})
-	case 53:
-		return groupByKey(words, "Assonanze", func(w string) string { return suffixChars(vowelSkeleton(w), 2) })
-	case 54:
-		return groupByKey(words, "Consonanze", func(w string) string { return suffixChars(consonantSkeleton(w), 2) })
 	case 55:
+		return groupByKey(words, "Assonanze", func(w string) string { return suffixChars(vowelSkeleton(w), 2) })
+	case 56:
+		return groupByKey(words, "Consonanze", func(w string) string { return suffixChars(consonantSkeleton(w), 2) })
+	case 57:
 		return findOxymoronCandidates(text)
 	}
 	return "Operazione non riconosciuta."
